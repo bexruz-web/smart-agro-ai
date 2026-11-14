@@ -15,7 +15,7 @@ origins = [o for o in [settings.webapp_url.rstrip("/") if settings.webapp_url el
 if settings.app_env == "development":
     origins += ["http://localhost:5173", "http://127.0.0.1:5173"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False,
-                   allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
+                   allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"])
 
 
 @app.middleware("http")

@@ -1,5 +1,7 @@
 # 🌾 Smart Agro AI — ishga tushirish qo'llanmasi
 
+> 🚀 **Tez boshlash (zip olganlar uchun):** [`ISHGA_TUSHIRISH.md`](ISHGA_TUSHIRISH.md) — 7 qadamda to'liq ishga tushirish, Telegram Mini App bilan.
+
 Telegram bot + Mini App: fermer dalasini xaritada belgilaydi → tizim **NASA POWER**, **ob-havo prognozi (Open-Meteo)** va **ESP32 sensorlari** ma'lumotlarini yig'adi → **FAO-56** suv balansi, qoidalar va **Claude AI** orqali tahlil qiladi → fermerga Telegram'da **har 4 soatda hisobot** va **darhol ogohlantirish** yuboradi → fermer javob beradi (feedback) → tizim keyingi mavsum uchun **almashlab ekish** va **hosil prognozini** aniqlashtiradi.
 
 > NASA hackathon MVP. Yakuniy konsepsiya: [`SMART_AGRO_AI_TELEGRAM_PROMPT.md`](SMART_AGRO_AI_TELEGRAM_PROMPT.md). API: [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) + [`docs/API_CONTRACT_V2.md`](docs/API_CONTRACT_V2.md).
