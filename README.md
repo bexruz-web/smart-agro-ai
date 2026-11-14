@@ -69,6 +69,19 @@ Bot lokal sinov uchun ham ishlaydi (`BOT_MODE=polling`, HTTPS shart emas), lekin
 docker compose up -d bot
 ```
 
+### Domensiz Telegram Mini App (ngrok tunnel)
+
+Mini App Telegram'da faqat `https://` manzilda ochiladi. Domen bo'lmasa — bepul ngrok tunnel:
+
+1. [ngrok.com](https://ngrok.com) da ro'yxatdan o'ting, ngrok'ni o'rnating va `ngrok config add-authtoken <token>` bajaring.
+2. `ngrok http 8088` — u `https://<nom>.ngrok-free.dev` manzil beradi (oyna yopilmasin).
+3. `.env`: `DOMAIN=<nom>.ngrok-free.dev`, `WEBAPP_URL=https://<nom>.ngrok-free.dev/`
+4. `docker compose up -d --force-recreate --no-deps api worker beat bot web`
+5. Telegram'da botga `/start` → til → "📍 Choose your region".
+
+Eslatmalar: kompyuter va `ngrok` ishlab turgan paytdagina ishlaydi; bepul ngrok birinchi ochilishda ogohlantirish
+sahifasini ko'rsatadi — **Visit Site** ni bir marta bosing. Bitta bot tokeni bilan bot faqat bitta joyda ishlay oladi.
+
 ---
 
 ## 4. Serverga joylash (production, HTTPS bilan)

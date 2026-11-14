@@ -93,7 +93,8 @@ function buildUrl(path: string, query?: Query): string {
 }
 
 async function doFetch(method: string, url: string, body: unknown, auth: boolean): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  // ngrok-skip-browser-warning: bepul ngrok tunnelida API javobi o'rniga ogohlantirish sahifasi qaytmasligi uchun
+  const headers: Record<string, string> = { Accept: 'application/json', 'ngrok-skip-browser-warning': '1' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (auth && token) headers.Authorization = `Bearer ${token}`
   try {
