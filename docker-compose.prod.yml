@@ -1,0 +1,18 @@
+# Production qo'shimchasi: HTTPS (Let's Encrypt) va bot webhook rejimi.
+# Ishga tushirish: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   (yoki: make up-prod)
+# Oldin sertifikat oling (README → "HTTPS").
+services:
+  web:
+    ports: !override
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes: !override
+      - ./infra/nginx/ssl.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./infra/certbot-www:/var/www/certbot:ro
+
+  bot:
+    environment:
+      BOT_MODE: webhook

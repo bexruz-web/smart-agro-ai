@@ -1,0 +1,6 @@
+# Lokal seq holati va qurilma tokenlari (demo seed yozadi) — commit qilinmaydi
+.state.json
+.state.json.tmp
+devices.json
+__pycache__/
+.pytest_cache/

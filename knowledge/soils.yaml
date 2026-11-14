@@ -1,0 +1,14 @@
+# Tuproq turlari: dala sig'imi (θFC) va so'lish nuqtasi (θWP), m³/m³.
+# Manba: FAO-56, 19-jadval (tipik oraliqlarning o'rtasi). Fermerning tuproq turi "taxmin" sifatida ishlatiladi.
+source: "FAO Irrigation and Drainage Paper 56, 19-jadval (o'rta qiymatlar)"
+textures:
+  sand:        {name_uz: "Qum",            theta_fc: 0.12, theta_wp: 0.045}
+  loamy_sand:  {name_uz: "Qumli qumoq",    theta_fc: 0.15, theta_wp: 0.065}
+  sandy_loam:  {name_uz: "Qumloq",         theta_fc: 0.23, theta_wp: 0.11}
+  loam:        {name_uz: "Qumoq",          theta_fc: 0.25, theta_wp: 0.12}
+  silt_loam:   {name_uz: "Changli qumoq",  theta_fc: 0.29, theta_wp: 0.15}
+  silt:        {name_uz: "Chang (lyoss)",  theta_fc: 0.32, theta_wp: 0.17}
+  silty_clay_loam: {name_uz: "Changli soz qumoq", theta_fc: 0.335, theta_wp: 0.205}
+  silty_clay:  {name_uz: "Changli soz",    theta_fc: 0.36, theta_wp: 0.23}
+  clay:        {name_uz: "Soz",            theta_fc: 0.36, theta_wp: 0.22}
+default: loam

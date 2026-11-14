@@ -1,0 +1,115 @@
+# Smart Agro AI — barcha servislar. Ishga tushirish: docker compose up -d --build
+# Server qayta yuklanganda servislar o'zi tiklanadi (restart: unless-stopped), ma'lumotlar volume'larda saqlanadi.
+name: smartagro
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  image: smartagro-backend:latest
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smartagro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartagro}
+      POSTGRES_DB: ${POSTGRES_DB:-smartagro}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *backend
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"]
+    volumes:
+      - ./simulator:/simulator
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-l", "INFO", "--concurrency", "2"]
+
+  beat:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "-l", "INFO", "-s", "/tmp/celerybeat-schedule"]
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    image: smartagro-bot:latest
+    env_file: .env
+    environment:
+      API_BASE: http://api:8000/api/v1
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./webapp
+      args:
+        VITE_API_BASE: /api/v1
+        VITE_MAP_PROVIDER: ${VITE_MAP_PROVIDER:-leaflet}
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+        VITE_ALLOW_DEMO: ${VITE_ALLOW_DEMO:-true}
+    image: smartagro-web:latest
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+
+  backup:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-smartagro}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-smartagro}
+      PGDATABASE: ${POSTGRES_DB:-smartagro}
+      BACKUP_KEEP_DAYS: "14"
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    volumes:
+      - ./infra/backup/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

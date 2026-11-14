@@ -1,0 +1,17 @@
+.env
+backups/*.gz
+backups/*.tmp
+simulator/devices.json
+simulator/.state.json
+webapp/node_modules/
+webapp/dist/
+firmware/esp32/include/config.h
+firmware/esp32/.pio/
+__pycache__/
+*.pyc
+.pytest_cache/
+.design-refs/
+.screenshots/
+.dist/
+.env.*
+!.env.example

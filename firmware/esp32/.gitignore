@@ -1,0 +1,5 @@
+# Maxfiy konfiguratsiya (Wi-Fi paroli, qurilma tokeni) — hech qachon commit qilinmaydi
+include/config.h
+# PlatformIO build artefaktlari
+.pio/
+.vscode/

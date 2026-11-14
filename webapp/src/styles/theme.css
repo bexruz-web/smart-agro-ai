@@ -1,0 +1,164 @@
+/*
+ * Smart Agro AI — design tokens (single source of truth for the look).
+ *
+ * Direction: "clean light agri-green cards" — airy light background, white rounded
+ * cards with a hairline border, deep green primary, light green tint for selected
+ * states, dark green-grey text, large readable numbers. Simple: no gradients, no glass.
+ *
+ * The brand palette wins over Telegram's theme: light is the default everywhere
+ * (also inside Telegram dark mode). An optional dark variant with the same green
+ * accents is used only when VITE_THEME_MODE=auto and the client is dark (see telegram.ts).
+ *
+ * Components must use ONLY these variables (no literal colours elsewhere).
+ */
+
+/* ---------- Brand palette: light (default) ---------- */
+:root {
+  color-scheme: light;
+
+  --color-bg: #f4f7f2; /* page background */
+  --color-card: #ffffff; /* cards */
+  --color-surface: #f6f9f4; /* tiles nested inside cards */
+  --color-surface-2: #e9f0e6; /* tracks, inactive fills */
+  --color-text: #1b2b20; /* dark green-grey */
+  --color-text-muted: #5f6f63;
+  --color-subtitle: #5f6f63;
+  --color-section-header: #3d5243;
+  --color-border: #e1e8dd;
+  --color-border-strong: #cfdacb;
+  --color-link: #1e6b3a;
+
+  --color-accent: #1e6b3a; /* deep green primary */
+  --color-accent-hover: #185a30;
+  --color-accent-text: #ffffff;
+  --color-accent-soft: #e4f2e3; /* light green tint: chips, selected */
+  --color-accent-soft-text: #1a5c32;
+  --color-accent-strong: #17462a; /* bottom bar */
+  --color-accent-bright: #9bdc85; /* active item on the dark bottom bar */
+  --color-on-strong: #e8f3e6; /* text/icons on the dark bottom bar */
+
+  --color-header-bg: var(--color-bg);
+  --color-destructive: #b42318;
+
+  /* Severity / status — tuned for sunlight readability (≥4.5:1 text on soft bg) */
+  --color-success: #1f7a3f;
+  --color-success-soft: #e3f3e7;
+  --color-warning: #9a5200;
+  --color-warning-soft: #fff1d9;
+  --color-danger: #b42318;
+  --color-danger-soft: #fde7e4;
+  --color-info: #1f5fa3;
+  --color-info-soft: #e5eef9;
+  --color-neutral-soft: #eef2ec;
+  --color-demo: #6a3cb5;
+  --color-demo-soft: #efe7fb;
+  --color-overlay: rgba(20, 35, 25, 0.4);
+
+  /* Map overlays on satellite imagery (hex only — Terra Draw requires hex) */
+  --map-field: #4ade80;
+  --map-draw: #ffd23f;
+  --map-invalid: #ff4d4d;
+  --map-other: #f1f5f0;
+  --map-vertex: #ffffff;
+  --map-pin-text: #111111;
+
+  /* Charts — validated (dataviz validator, light, white surface): CVD ΔE ≥ 20, contrast ≥ 3:1 */
+  --chart-1: #2e8b47;
+  --chart-2: #2563a8;
+  --chart-3: #c27100;
+  --chart-4: #8b5cf6;
+  --chart-bad: #c62f25;
+  --chart-grid: #e6ece3;
+  --chart-axis: #6b7a6e;
+}
+
+/* ---------- Optional dark variant (same green accents) ---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #111a14;
+  --color-card: #18231b;
+  --color-surface: #1e2a21;
+  --color-surface-2: #263429;
+  --color-text: #e8f0e9;
+  --color-text-muted: #9aab9d;
+  --color-subtitle: #9aab9d;
+  --color-section-header: #b9c9bb;
+  --color-border: #2a382d;
+  --color-border-strong: #364839;
+  --color-link: #7fd08f;
+
+  --color-accent: #2f8a4e;
+  --color-accent-hover: #2a7a45;
+  --color-accent-text: #ffffff;
+  --color-accent-soft: #1f3a27;
+  --color-accent-soft-text: #a6e3b3;
+  --color-accent-strong: #0d2415;
+  --color-accent-bright: #9bdc85;
+  --color-on-strong: #e8f3e6;
+  --color-destructive: #ff7a6e;
+
+  --color-success: #6fd58d;
+  --color-success-soft: #1b3324;
+  --color-warning: #f2b544;
+  --color-warning-soft: #3a2d12;
+  --color-danger: #ff8a7e;
+  --color-danger-soft: #41201c;
+  --color-info: #86b8f2;
+  --color-info-soft: #1b2a3d;
+  --color-neutral-soft: #222e25;
+  --color-demo: #c9a6f7;
+  --color-demo-soft: #2e2340;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Validated for dark surface #1d2520 */
+  --chart-1: #3ea85f;
+  --chart-2: #4a8bd4;
+  --chart-3: #c08118;
+  --chart-4: #9373e6;
+  --chart-bad: #ff7a6e;
+  --chart-grid: #2b352f;
+  --chart-axis: #8d998b;
+}
+
+/* ---------- Typography, spacing, shape ---------- */
+:root {
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-size-metric: 28px; /* key metric values */
+  --font-size-xxl: 30px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 650;
+  --line-height: 1.45;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --gutter: 16px;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --border-card: 1px solid var(--color-border);
+  --shadow-card: 0 1px 2px rgba(23, 50, 30, 0.04);
+  --shadow-float: 0 6px 20px rgba(23, 50, 30, 0.18);
+
+  --touch-target: 48px;
+  --nav-height: 64px;
+  --nav-offset: 12px; /* floating bottom bar distance from the edges */
+  --map-height: 52vh;
+  --map-height-small: 200px;
+  --content-max-width: 720px;
+}

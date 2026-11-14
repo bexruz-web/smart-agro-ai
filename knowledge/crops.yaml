@@ -1,0 +1,179 @@
+# Smart Agro AI — ekinlar bilim bazasi.
+# Qoida: har bir qiymatning manbasi bor. Manbasi aniq bo'lmagan yoki tekshirilmagan qiymatlar
+# `status: tekshirilmagan` yoki `null` bilan belgilangan va UI/AI'da "taxmin" deb ko'rsatiladi.
+#
+# Manbalar:
+#   FAO56   — Allen R.G. va b., FAO Irrigation and Drainage Paper 56 (1998): Kc (12-jadval),
+#             bosqich uzunliklari (11-jadval, indikativ), Zr va p (22-jadval).
+#   FAO33   — Doorenbos & Kassam, FAO Irrigation and Drainage Paper 33 (1979): Ky (butun mavsum).
+#   FAO29   — Ayers & Westcot, FAO Irrigation and Drainage Paper 29 Rev.1 (1985): ECe chegarasi (dS/m).
+#   FAOCW   — FAO Land & Water "Crop Water Information": mavsumiy suv talabi (mm).
+#   GEN     — keng qo'llanadigan agronomik konventsiya; rasmiy manba bilan tasdiqlash kerak.
+#   REGION  — O'zbekiston uchun mintaqaviy hosil darajasi; FAOSTAT bilan tasdiqlash kerak.
+
+sources:
+  FAO56: "FAO Irrigation and Drainage Paper 56 (Allen va b., 1998)"
+  FAO33: "FAO Irrigation and Drainage Paper 33 (Doorenbos & Kassam, 1979)"
+  FAO29: "FAO Irrigation and Drainage Paper 29 Rev.1 (Ayers & Westcot, 1985)"
+  FAOCW: "FAO Land & Water — Crop Water Information"
+  GEN: "Keng qo'llanadigan agronomik qiymat (tekshirilmagan)"
+  REGION: "O'zbekiston uchun mintaqaviy taxmin (FAOSTAT bilan tasdiqlash kerak)"
+
+crops:
+  wheat_winter:
+    name_uz: "Kuzgi bug'doy"
+    family: Poaceae
+    family_uz: "Boshoqdoshlar"
+    default_planting: "10-15"          # oy-kun
+    stages_days: {ini: 30, dev: 140, mid: 40, late: 30}   # FAO56 11-jadval (indikativ, qishlash bilan)
+    kc: {ini: 0.7, mid: 1.15, end: 0.4}                     # FAO56 12-jadval
+    root_depth_m: 1.5                                        # FAO56 22-jadval (1.5–1.8)
+    depletion_p: 0.55                                        # FAO56 22-jadval
+    ky: 1.0                                                  # FAO33 (kuzgi bug'doy)
+    ece_threshold_ds_m: 6.0                                  # FAO29
+    ece_slope_pct_per_ds_m: 7.1                              # FAO29 (Maas-Hoffman)
+    water_need_mm: [450, 650]                                # FAOCW
+    t_base_c: 0.0                                            # GEN
+    frost_kill_c: -15.0                                      # GEN (qishlash davrida chidamli)
+    frost_sensitive_stages: [mid]                            # GEN (boshoqlash/gullash)
+    heat_stress_c: 32.0                                      # GEN (gullash davrida)
+    ph_range: [6.0, 7.5]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [4.0, 5.5, 7.0]                    # REGION (min, odatiy, max)
+    product_uz: "don"
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+  cotton:
+    name_uz: "G'o'za (paxta)"
+    family: Malvaceae
+    family_uz: "Gulxayridoshlar"
+    default_planting: "04-15"
+    stages_days: {ini: 30, dev: 50, mid: 60, late: 55}       # FAO56 11-jadval (indikativ)
+    kc: {ini: 0.35, mid: 1.18, end: 0.6}                     # FAO56 12-jadval (mid 1.15–1.20, end 0.50–0.70)
+    root_depth_m: 1.3                                        # FAO56 22-jadval (1.0–1.7)
+    depletion_p: 0.65                                        # FAO56 22-jadval
+    ky: 0.85                                                 # FAO33
+    ece_threshold_ds_m: 7.7                                  # FAO29
+    ece_slope_pct_per_ds_m: 5.2                              # FAO29
+    water_need_mm: [700, 1300]                               # FAOCW
+    t_base_c: 15.6                                           # GEN (60°F)
+    frost_kill_c: -1.0                                       # GEN
+    frost_sensitive_stages: [ini, dev, mid, late]
+    heat_stress_c: 38.0                                      # GEN
+    ph_range: [5.8, 8.0]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [2.2, 3.0, 4.0]                    # REGION (xom paxta)
+    product_uz: "xom paxta"
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+  maize_grain:
+    name_uz: "Makkajo'xori (don)"
+    family: Poaceae
+    family_uz: "Boshoqdoshlar"
+    default_planting: "04-25"
+    stages_days: {ini: 30, dev: 50, mid: 60, late: 40}       # FAO56 11-jadval (indikativ)
+    kc: {ini: 0.3, mid: 1.2, end: 0.5}                       # FAO56 12-jadval (end 0.35–0.60)
+    root_depth_m: 1.3                                        # FAO56 22-jadval (1.0–1.7)
+    depletion_p: 0.55                                        # FAO56 22-jadval
+    ky: 1.25                                                 # FAO33
+    ece_threshold_ds_m: 1.7                                  # FAO29
+    ece_slope_pct_per_ds_m: 12.0                             # FAO29
+    water_need_mm: [500, 800]                                # FAOCW
+    t_base_c: 10.0                                           # GEN
+    frost_kill_c: -1.0                                       # GEN
+    frost_sensitive_stages: [ini, dev, mid, late]
+    heat_stress_c: 35.0                                      # GEN (changlanish davrida)
+    ph_range: [5.8, 7.5]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [5.0, 7.0, 9.0]                    # REGION
+    product_uz: "don"
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+  alfalfa:
+    name_uz: "Beda"
+    family: Fabaceae
+    family_uz: "Dukkakdoshlar"
+    default_planting: "04-01"
+    stages_days: {ini: 10, dev: 30, mid: 150, late: 10}      # FAO56 (o'rim sikllari o'rtachalangan — soddalashtirish)
+    kc: {ini: 0.4, mid: 0.95, end: 0.9}                      # FAO56 12-jadval (o'rtacha o'rim ta'siri)
+    root_depth_m: 1.5                                        # FAO56 22-jadval (1.0–2.0)
+    depletion_p: 0.55                                        # FAO56 22-jadval
+    ky: 1.1                                                  # FAO33
+    ece_threshold_ds_m: 2.0                                  # FAO29
+    ece_slope_pct_per_ds_m: 7.3                              # FAO29
+    water_need_mm: [800, 1600]                               # FAOCW
+    t_base_c: 5.0                                            # GEN
+    frost_kill_c: -10.0                                      # GEN
+    frost_sensitive_stages: [ini]
+    heat_stress_c: 38.0                                      # GEN
+    ph_range: [6.5, 7.5]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [8.0, 11.0, 14.0]                  # REGION (quruq pichan)
+    product_uz: "pichan"
+    nitrogen_fixing: true
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+  mung_bean:
+    name_uz: "Mosh"
+    family: Fabaceae
+    family_uz: "Dukkakdoshlar"
+    default_planting: "06-25"          # O'zbekistonda ko'pincha bug'doydan keyin takroriy ekin
+    stages_days: {ini: 20, dev: 30, mid: 40, late: 20}       # FAO56 "quruq loviya" proksi (indikativ)
+    kc: {ini: 0.4, mid: 1.15, end: 0.35}                     # FAO56 12-jadval, "Beans, dry" proksi
+    root_depth_m: 0.75                                       # FAO56 22-jadval, loviya proksi (0.6–0.9)
+    depletion_p: 0.45                                        # FAO56 22-jadval, loviya proksi
+    ky: 1.15                                                 # FAO33, loviya proksi
+    ece_threshold_ds_m: 1.0                                  # FAO29, loviya proksi
+    ece_slope_pct_per_ds_m: 19.0                             # FAO29, loviya proksi
+    water_need_mm: [300, 500]                                # FAOCW, loviya proksi
+    t_base_c: 10.0                                           # GEN
+    frost_kill_c: 0.0                                        # GEN
+    frost_sensitive_stages: [ini, dev, mid, late]
+    heat_stress_c: 36.0                                      # GEN
+    ph_range: [6.2, 7.2]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [1.0, 1.5, 2.0]                    # REGION
+    product_uz: "don"
+    nitrogen_fixing: true
+    proxy_note: "Mosh FAO jadvallarida alohida yo'q — 'quruq loviya' qiymatlari proksi sifatida olingan"
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+  potato:
+    name_uz: "Kartoshka"
+    family: Solanaceae
+    family_uz: "Ituzumdoshlar"
+    default_planting: "03-20"
+    stages_days: {ini: 25, dev: 30, mid: 45, late: 30}       # FAO56 11-jadval (indikativ)
+    kc: {ini: 0.5, mid: 1.15, end: 0.75}                     # FAO56 12-jadval
+    root_depth_m: 0.5                                        # FAO56 22-jadval (0.4–0.6)
+    depletion_p: 0.35                                        # FAO56 22-jadval
+    ky: 1.1                                                  # FAO33
+    ece_threshold_ds_m: 1.7                                  # FAO29
+    ece_slope_pct_per_ds_m: 12.0                             # FAO29
+    water_need_mm: [500, 700]                                # FAOCW
+    t_base_c: 7.0                                            # GEN
+    frost_kill_c: -1.0                                       # GEN
+    frost_sensitive_stages: [ini, dev, mid, late]
+    heat_stress_c: 30.0                                      # GEN (tugunak hosil bo'lishi)
+    ph_range: [5.0, 6.5]                                     # GEN — tekshirilmagan
+    potential_yield_t_ha: [18.0, 24.0, 32.0]                 # REGION
+    product_uz: "tugunak"
+    sources: {stages_days: FAO56, kc: FAO56, root_depth_m: FAO56, depletion_p: FAO56, ky: FAO33,
+              ece_threshold_ds_m: FAO29, water_need_mm: FAOCW, t_base_c: GEN, heat_stress_c: GEN,
+              ph_range: GEN, potential_yield_t_ha: REGION}
+
+# Almashlab ekish qoidalari (ROT-4). Ballar shaffof va UI'da ko'rsatiladi.
+rotation_rules:
+  same_crop_penalty: -25          # ketma-ket bir xil ekin
+  same_crop_max_consecutive: 2    # 2 yildan ko'p ketma-ket — chiqarib tashlanadi
+  same_family_penalty: -12        # ketma-ket bir oila (kasallik/zararkunanda sikli)
+  legume_after_cereal_bonus: 15   # dukkakli azot to'playdi
+  after_legume_bonus: 10          # dukkakli/bedadan keyingi ekin azotdan foydalanadi
+  cotton_after_alfalfa_bonus: 8   # O'zbekistonda an'anaviy g'o'za–beda almashlab ekishi (GEN)
+  salinity_exclusion_factor: 1.5  # ECe > chegara×1.5 — chiqarib tashlanadi
+  ph_outside_penalty: -10
