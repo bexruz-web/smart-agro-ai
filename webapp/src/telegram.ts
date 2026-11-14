@@ -57,6 +57,7 @@ interface TgLocationManager {
 
 interface TgWebApp {
   initData: string
+  initDataUnsafe?: { user?: { language_code?: string }; start_param?: string }
   version: string
   platform: string
   colorScheme: 'light' | 'dark'
@@ -73,9 +74,6 @@ interface TgWebApp {
   setBottomBarColor?: (color: string) => void
   onEvent(event: string, cb: Callback): void
   offEvent(event: string, cb: Callback): void
-  showAlert?: (message: string, cb?: Callback) => void
-  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void
-  showConfirm?: (message: string, cb?: (ok: boolean) => void) => void
   MainButton: TgBottomButton
   BackButton: TgBackButton
   LocationManager?: TgLocationManager
@@ -107,6 +105,15 @@ function atLeast(version: string): boolean {
 /** Signed init data (empty string in a plain browser). */
 export function getInitData(): string {
   return webApp()?.initData ?? ''
+}
+
+/** Telegram user's interface language code ("ru", "en", "uz", …), if known. */
+export function getTelegramLanguageCode(): string | null {
+  try {
+    return webApp()?.initDataUnsafe?.user?.language_code ?? null
+  } catch {
+    return null
+  }
 }
 
 /** True only when actually running inside a Telegram client (initData present). */
@@ -229,27 +236,7 @@ export function hasNativeBackButton(): boolean {
   return !!wa && isInTelegram() && !!wa.BackButton && atLeast('6.1')
 }
 
-// ---------------------------------------------------------------- Links
-
-/** Opens an external link: Telegram's in-app browser when available, else a new tab. */
-export function openExternalLink(url: string): void {
-  const wa = webApp()
-  if (wa && isInTelegram() && typeof wa.openLink === 'function') {
-    wa.openLink(url)
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
-// ---------------------------------------------------------------- Dialogs / haptics
-
-export function confirmDialog(message: string): Promise<boolean> {
-  const wa = webApp()
-  if (wa && isInTelegram() && wa.showConfirm && atLeast('6.2')) {
-    return new Promise((resolve) => wa.showConfirm!(message, (ok) => resolve(!!ok)))
-  }
-  return Promise.resolve(window.confirm(message))
-}
+// ---------------------------------------------------------------- Haptics
 
 export function haptic(type: 'success' | 'error' | 'warning'): void {
   try {
@@ -269,10 +256,13 @@ export interface GeoFix {
   source: 'telegram' | 'browser'
 }
 
+export type LocationErrorCode = 'denied' | 'unavailable' | 'timeout'
+
+/** Location failure; the UI shows a localized text for `code` (i18n keys location.*). */
 export class LocationError extends Error {
-  readonly code: 'denied' | 'unavailable' | 'timeout'
-  constructor(code: 'denied' | 'unavailable' | 'timeout', message: string) {
-    super(message)
+  readonly code: LocationErrorCode
+  constructor(code: LocationErrorCode) {
+    super(`location ${code}`)
     this.code = code
   }
 }
@@ -302,7 +292,7 @@ function telegramLocation(): Promise<GeoFix | null> {
 function browserLocation(): Promise<GeoFix> {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) {
-      reject(new LocationError('unavailable', "Qurilmada GPS/joylashuv xizmati mavjud emas"))
+      reject(new LocationError('unavailable'))
       return
     }
     navigator.geolocation.getCurrentPosition(
@@ -310,9 +300,9 @@ function browserLocation(): Promise<GeoFix> {
         resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy ?? null, source: 'browser' }),
       (err) => {
         if (err.code === err.PERMISSION_DENIED)
-          reject(new LocationError('denied', "Joylashuvga ruxsat berilmadi. Sozlamalardan ruxsat bering yoki xaritada tanlang"))
-        else if (err.code === err.TIMEOUT) reject(new LocationError('timeout', "Joylashuvni aniqlash vaqti tugadi, qayta urinib ko'ring"))
-        else reject(new LocationError('unavailable', "Joylashuvni aniqlab bo'lmadi"))
+          reject(new LocationError('denied'))
+        else if (err.code === err.TIMEOUT) reject(new LocationError('timeout'))
+        else reject(new LocationError('unavailable'))
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
     )
@@ -320,8 +310,8 @@ function browserLocation(): Promise<GeoFix> {
 }
 
 /**
- * Current GPS position (TG-3 order): Telegram LocationManager (Bot API 8.0+)
- * → browser navigator.geolocation. Manual map pick is the caller's fallback.
+ * Current position: Telegram LocationManager (Bot API 8.0+) → browser navigator.geolocation.
+ * Manual map pick is the caller's fallback.
  */
 export async function getCurrentLocation(): Promise<GeoFix> {
   const tg = await telegramLocation()

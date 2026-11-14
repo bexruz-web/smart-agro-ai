@@ -54,6 +54,9 @@ CHAT_SCHEMA = {
 }
 
 
+ADVICE_SCHEMA = {"type": "OBJECT", "properties": {"lines": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["lines"]}
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -113,6 +116,13 @@ class GeminiProvider:
         payload = {"context": context, "recommendations": [{"index": i, **d} for i, d in enumerate(drafts)]}
         data, usage = await self._generate(EXPLAIN_SYSTEM_V1, json.dumps(payload, ensure_ascii=False, default=str), EXPLAIN_SCHEMA)
         return ExplainResult(items=data.get("items", []), summary_uz=data.get("summary_uz", ""), usage=usage)
+
+    async def advice(self, facts: dict, lang_name: str) -> list[str] | None:
+        from app.agent.prompts import ADVICE_SYSTEM_V1
+
+        data, _ = await self._generate(ADVICE_SYSTEM_V1, f"Til: {lang_name}\n\nFAKTLAR:\n{json.dumps(facts, ensure_ascii=False, default=str)}",
+                                       ADVICE_SCHEMA)
+        return [str(x) for x in data.get("lines", []) if str(x).strip()][:2] or None
 
     async def chat(self, system: str, history: list[dict], message: str, tools: list[dict],
                    execute: ToolExecutor) -> ChatResult:

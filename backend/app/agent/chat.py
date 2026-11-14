@@ -12,7 +12,8 @@ from app.agent.snapshot import build_snapshot
 from app.core.config import get_settings
 from app.db.models import ChatMessage, CropSeason, Farmer, Field, Recommendation, SensorReading
 from app.domain import knowledge
-from app.integrations.llm.base import REFUSAL_TEXT, LLMError
+from app.core.i18n import CHAT_MSG, LANG_NAME, REFUSAL, norm_lang
+from app.integrations.llm.base import LLMError
 from app.integrations.llm.mock_provider import get_provider
 from app.services import weather
 
@@ -50,7 +51,7 @@ class ChatTools:
     async def _field(self, field_id) -> Field:
         f = await self.session.get(Field, int(field_id))
         if f is None or f.farmer_id != self.farmer.id:  # IDOR himoyasi
-            raise ValueError("Bunday dala topilmadi")
+            raise ValueError("Field not found")
         return f
 
     async def execute(self, name: str, args: dict) -> str:
@@ -105,27 +106,31 @@ async def answer(session: AsyncSession, farmer: Farmer, message: str, field_id: 
         ChatMessage.farmer_id == farmer.id, ChatMessage.role == "user", ChatMessage.created_at >= start_of_day))
     remaining = settings.chat_daily_limit - (used or 0)
     if remaining <= 0:
-        return {"reply": "Bugungi savollar limiti tugadi. Ertaga yana yozing.", "refused": False, "sources": [], "remaining_today": 0}
+        return {"reply": CHAT_MSG["limit"][norm_lang(farmer.language)], "refused": False, "sources": [], "remaining_today": 0}
 
-    hist_rows = (await session.execute(select(ChatMessage).where(ChatMessage.farmer_id == farmer.id, ChatMessage.refused.is_(False))
-                                       .order_by(ChatMessage.id.desc()).limit(6))).scalars().all()
+    # xotira dala bo'yicha: boshqa dalalarning suhbati aralashmaydi
+    hq = select(ChatMessage).where(ChatMessage.farmer_id == farmer.id, ChatMessage.refused.is_(False))
+    hq = hq.where(ChatMessage.field_id == field_id) if field_id else hq.where(ChatMessage.field_id.is_(None))
+    hist_rows = (await session.execute(hq.order_by(ChatMessage.id.desc()).limit(8))).scalars().all()
     history = [{"role": m.role, "content": m.content} for m in reversed(hist_rows)]
     if history and history[0]["role"] != "user":
         history = history[1:]
     hint = f"\n\n(Fermer tanlagan dala ID: {field_id})" if field_id else ""
     tools = ChatTools(session, farmer)
     provider = get_provider()
+    lang = norm_lang(farmer.language)
+    system = CHAT_SYSTEM_V1 + f"\nJavob tili: {LANG_NAME[lang]}. Fermer boshqa tilda yozsa ham shu tilda javob ber."
     refused, sources, usage = False, [], None
     try:
-        res = await provider.chat(CHAT_SYSTEM_V1, history, message + hint, TOOLS, tools.execute)
+        res = await provider.chat(system, history, message + hint, TOOLS, tools.execute)
         usage = res.usage
         if not res.on_topic:
-            refused, reply = True, REFUSAL_TEXT
+            refused, reply = True, REFUSAL[lang]
         else:
             reply, sources = res.answer, res.sources
     except LLMError as e:
         log.warning("chat failed: %s", e)
-        reply = "AI agronom hozir javob bera olmayapti. Birozdan keyin qayta urinib ko'ring yoki dala panelidagi tavsiyalarni ko'ring."
+        reply = CHAT_MSG["unavailable"][lang]
     session.add(ChatMessage(farmer_id=farmer.id, role="user", content=message, refused=refused, field_id=field_id))
     session.add(ChatMessage(farmer_id=farmer.id, role="assistant", content=reply, refused=refused, field_id=field_id,
                             input_tokens=usage.input_tokens if usage else None, output_tokens=usage.output_tokens if usage else None))

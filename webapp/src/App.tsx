@@ -1,105 +1,120 @@
-import { lazy, Suspense } from 'react'
-import { HashRouter, NavLink, Route, Routes, useLocation } from 'react-router'
-import { AuthProvider, type LoginScreenProps } from './auth'
+import { useEffect } from 'react'
+import { HashRouter, Link, Route, Routes, useLocation } from 'react-router'
+import { AuthProvider, useAuth, type LoginScreenProps } from './auth'
 import { config } from './config'
+import { useI18n } from './i18n'
 import { isInTelegram } from './telegram'
-import { ChatPage } from './pages/ChatPage'
+import { IconMap, IconPlus, IconSettings } from './components/icons'
+import { Empty, Page } from './components/ui'
+import { AgronomPage } from './pages/AgronomPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { DevicesPage } from './pages/DevicesPage'
-import { EventsPage } from './pages/EventsPage'
-import { FarmLocationPage } from './pages/FarmLocationPage'
-import { FieldEditorPage } from './pages/FieldEditorPage'
-import { FieldsPage } from './pages/FieldsPage'
-import { RotationPage } from './pages/RotationPage'
-import { SeasonsPage } from './pages/SeasonsPage'
+import { FieldFormPage } from './pages/FieldFormPage'
+import { FieldPage } from './pages/FieldPage'
+import { RegionPage } from './pages/RegionPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { IconChat, IconLeaf, IconSensor, IconSettings } from './components/icons'
-import { Empty, Loading, Page } from './components/ui'
-
-// Chart pages pull in recharts — load them on demand to keep the first paint small.
-const HistoryPage = lazy(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage })))
-const ClimatePage = lazy(() => import('./pages/ClimatePage').then((m) => ({ default: m.ClimatePage })))
 
 function LoginScreen({ error, busy, onDemo, onRetryTelegram }: LoginScreenProps) {
+  const { t } = useI18n()
   const inTelegram = isInTelegram()
   return (
     <div className="login">
       <div className="login__logo">🌱</div>
-      <h1 className="login__title">Smart Agro AI</h1>
-      <p className="login__text">NASA ma'lumotlari, dala sensorlari va AI asosida dalangiz uchun aqlli tavsiyalar.</p>
+      <h1 className="login__title">{t('app.name')}</h1>
+      <p className="login__text">{t('login.tagline')}</p>
       {error && <div className="state state--error">⚠️ {error}</div>}
       {inTelegram ? (
         <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={onRetryTelegram}>
-          {busy ? 'Kirilmoqda…' : 'Qayta urinish'}
+          {busy ? t('login.signingIn') : t('common.retry')}
         </button>
       ) : config.allowDemo ? (
         <>
           <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={onDemo}>
-            {busy ? 'Kirilmoqda…' : 'Demo rejimida kirish'}
+            {busy ? t('login.signingIn') : t('login.demo')}
           </button>
-          <p className="login__hint">To'liq ishlash uchun ilovani Telegram bot orqali oching.</p>
+          <p className="login__hint">{t('login.openInTelegramFull')}</p>
         </>
       ) : (
-        <p className="login__hint">Ilovani Telegram bot orqali oching.</p>
+        <p className="login__hint">{t('login.openInTelegram')}</p>
       )}
     </div>
   )
 }
 
-const NAV = [
-  { to: '/', label: 'Dalalar', Icon: IconLeaf, end: true },
-  { to: '/chat', label: 'AI agronom', Icon: IconChat, end: false },
-  { to: '/devices', label: 'Qurilmalar', Icon: IconSensor, end: false },
-  { to: '/settings', label: 'Sozlamalar', Icon: IconSettings, end: false },
-]
+type Tab = 'dashboard' | 'add' | 'settings'
 
+function activeTab(pathname: string): Tab | null {
+  if (pathname === '/fields/new') return 'add'
+  if (pathname === '/settings') return 'settings'
+  if (pathname === '/' || pathname.startsWith('/fields/')) return 'dashboard'
+  return null
+}
+
+/** Exactly 3 tabs: Dashboard · Qo'shish (+) · Sozlamalar. */
 function BottomNav() {
+  const { t } = useI18n()
+  const { pathname } = useLocation()
+  const active = activeTab(pathname)
   return (
-    <nav className="bottom-nav" aria-label="Asosiy menyu">
-      {NAV.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `bottom-nav__item ${isActive ? 'is-active' : ''}`}>
-          <span className="bottom-nav__icon">
-            <n.Icon size={22} />
-          </span>
-          <span className="bottom-nav__label">{n.label}</span>
-        </NavLink>
-      ))}
+    <nav className="bottom-nav" aria-label={t('nav.aria')}>
+      <Link to="/" className={`bottom-nav__item ${active === 'dashboard' ? 'is-active' : ''}`} aria-current={active === 'dashboard' ? 'page' : undefined}>
+        <span className="bottom-nav__icon">
+          <IconMap size={22} />
+        </span>
+        <span className="bottom-nav__label">{t('nav.dashboard')}</span>
+      </Link>
+      <Link to="/fields/new" className={`bottom-nav__item bottom-nav__item--add ${active === 'add' ? 'is-active' : ''}`} aria-current={active === 'add' ? 'page' : undefined}>
+        <span className="bottom-nav__plus">
+          <IconPlus size={24} strokeWidth={2.4} />
+        </span>
+        <span className="bottom-nav__label">{t('nav.add')}</span>
+      </Link>
+      <Link to="/settings" className={`bottom-nav__item ${active === 'settings' ? 'is-active' : ''}`} aria-current={active === 'settings' ? 'page' : undefined}>
+        <span className="bottom-nav__icon">
+          <IconSettings size={22} />
+        </span>
+        <span className="bottom-nav__label">{t('nav.settings')}</span>
+      </Link>
     </nav>
   )
 }
 
-/** Full-screen map screens hide the bottom navigation (and use MainButton for saving). */
-function Shell() {
-  const { pathname } = useLocation()
-  const fullScreen = /^\/fields\/(new|\d+\/edit)$/.test(pathname) || pathname === '/location'
+function NotFound() {
+  const { t } = useI18n()
   return (
-    <div className={`app ${fullScreen ? 'app--fullscreen' : 'app--with-nav'}`}>
-      <Suspense fallback={<Loading />}>
+    <Page title={t('common.notFound')} back="/">
+      <Empty>{t('common.notFoundText')}</Empty>
+    </Page>
+  )
+}
+
+function Shell() {
+  const { farmer } = useAuth()
+  const { pathname } = useLocation()
+  useI18n() // re-render the shell on language change
+  // A new screen always starts at the top.
+  useEffect(() => window.scrollTo(0, 0), [pathname])
+
+  // First entry: the farmer has not chosen a region yet.
+  if (!farmer.farm_location) {
+    return (
+      <div className="app app--fullscreen">
+        <RegionPage />
+      </div>
+    )
+  }
+
+  return (
+    <div className="app app--with-nav">
       <Routes>
-        <Route path="/" element={<FieldsPage />} />
-        <Route path="/location" element={<FarmLocationPage />} />
-        <Route path="/fields/new" element={<FieldEditorPage />} />
-        <Route path="/fields/:id" element={<DashboardPage />} />
-        <Route path="/fields/:id/edit" element={<FieldEditorPage />} />
-        <Route path="/fields/:id/history" element={<HistoryPage />} />
-        <Route path="/fields/:id/climate" element={<ClimatePage />} />
-        <Route path="/fields/:id/rotation" element={<RotationPage />} />
-        <Route path="/fields/:id/seasons" element={<SeasonsPage />} />
-        <Route path="/fields/:id/events" element={<EventsPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/devices" element={<DevicesPage />} />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/fields/new" element={<FieldFormPage />} />
+        <Route path="/fields/:id" element={<FieldPage />} />
+        <Route path="/fields/:id/edit" element={<FieldFormPage />} />
+        <Route path="/fields/:id/agronom" element={<AgronomPage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route
-          path="*"
-          element={
-            <Page title="Sahifa topilmadi" back="/">
-              <Empty>Bunday sahifa yo'q.</Empty>
-            </Page>
-          }
-        />
+        <Route path="*" element={<NotFound />} />
       </Routes>
-      </Suspense>
-      {!fullScreen && <BottomNav />}
+      <BottomNav />
     </div>
   )
 }

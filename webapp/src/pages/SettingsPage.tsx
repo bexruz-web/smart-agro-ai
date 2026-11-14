@@ -1,51 +1,86 @@
-/** Sozlamalar — PATCH /me: report interval (NOTIF-1), quiet hours (NOTIF-4), consent (TG-2), farm location (TG-3). */
+/**
+ * Settings: (a) land plots — open / edit / add; (b) notification interval → PATCH /me notify_schedule;
+ * (c) language UZB · RUS · ENG → PATCH /me language (the UI switches immediately).
+ */
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
-import { patchMe } from '../api/endpoints'
-import type { FarmerPatch, ReportInterval } from '../api/types'
+import { Link, useNavigate } from 'react-router'
+import { getFields, patchMe } from '../api/endpoints'
+import type { NotifySchedule } from '../api/types'
 import { useAuth } from '../auth'
-import { Card, DemoBadge, ErrorBox, FormRow, KeyValue, NoData, Page } from '../components/ui'
+import { RiskChip } from '../components/field'
+import { IconEdit, IconPlus } from '../components/icons'
+import { Card, ErrorBox, Loading, Page } from '../components/ui'
+import { useAsync } from '../hooks/useAsync'
+import { LANGS, LANG_LABEL, getLang, setLang, toLang, useI18n, type Lang, type MessageKey } from '../i18n'
 import { haptic } from '../telegram'
-import { formatLatLon } from '../utils/geo'
-import { formatDateTime } from '../utils/time'
+import { fmtNum } from '../utils/format'
 
-const INTERVALS: ReportInterval[] = [1, 2, 4, 6, 12, 24]
-const HOURS = Array.from({ length: 24 }, (_, h) => h)
-const hh = (h: number) => `${String(h).padStart(2, '0')}:00`
+const SCHEDULES: NotifySchedule[] = ['daily3', '2h', '4h', '8h', '10h', 'weekly', 'monthly']
+const SCHEDULE_LABEL: Record<NotifySchedule, MessageKey> = {
+  daily3: 'notify.daily3',
+  '2h': 'notify.2h',
+  '4h': 'notify.4h',
+  '8h': 'notify.8h',
+  '10h': 'notify.10h',
+  weekly: 'notify.weekly',
+  monthly: 'notify.monthly',
+}
 
-export function SettingsPage() {
-  const { farmer, setFarmer, mode } = useAuth()
+function FieldsSection() {
+  const { t } = useI18n()
   const navigate = useNavigate()
-  const [interval, setReportInterval] = useState<ReportInterval>(farmer.report_interval_hours)
-  const [quietOn, setQuietOn] = useState(farmer.quiet_hours_start !== null && farmer.quiet_hours_end !== null)
-  const [qStart, setQStart] = useState(farmer.quiet_hours_start ?? 22)
-  const [qEnd, setQEnd] = useState(farmer.quiet_hours_end ?? 6)
-  const [consent, setConsent] = useState(!!farmer.consent_at)
+  const fields = useAsync(getFields, [])
+  return (
+    <Card title={t('settings.fields')}>
+      {fields.loading && !fields.data && <Loading />}
+      {fields.error && <ErrorBox error={fields.error} onRetry={fields.reload} />}
+      {fields.data && fields.data.length === 0 && <div className="muted">{t('settings.noFields')}</div>}
+      {fields.data && fields.data.length > 0 && (
+        <ul className="plot-list">
+          {fields.data.map((f) => (
+            <li key={f.id} className="plot">
+              <Link to={`/fields/${f.id}`} className="plot__main">
+                <span className="plot__name">{f.name}</span>
+                <span className="plot__meta">
+                  {fmtNum(f.area_ha, 2)} {t('unit.ha')} · <RiskChip risk={f.status?.drying_risk} />
+                </span>
+              </Link>
+              <button type="button" className="icon-btn" onClick={() => navigate(`/fields/${f.id}/edit`)} aria-label={`${t('fieldPage.edit')}: ${f.name}`} title={t('fieldPage.edit')}>
+                <IconEdit size={20} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="btn btn--secondary btn--block" onClick={() => navigate('/fields/new')}>
+        <IconPlus size={20} /> {t('settings.addField')}
+      </button>
+    </Card>
+  )
+}
+
+function NotifySection() {
+  const { t } = useI18n()
+  const { farmer, setFarmer } = useAuth()
+  const saved = (SCHEDULES as string[]).includes(farmer.notify_schedule ?? '') ? (farmer.notify_schedule as NotifySchedule) : 'daily3'
+  const [value, setValue] = useState<NotifySchedule>(saved)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
+  const [ok, setOk] = useState(false)
 
-  const dirty =
-    interval !== farmer.report_interval_hours ||
-    (quietOn ? qStart : null) !== farmer.quiet_hours_start ||
-    (quietOn ? qEnd : null) !== farmer.quiet_hours_end ||
-    (consent && !farmer.consent_at)
-
-  const save = async () => {
+  const choose = async (s: NotifySchedule) => {
+    if (busy || s === value) return
+    const prev = value
+    setValue(s)
     setBusy(true)
     setError(null)
-    setSaved(false)
-    const patch: FarmerPatch = {
-      report_interval_hours: interval,
-      quiet_hours_start: quietOn ? qStart : null,
-      quiet_hours_end: quietOn ? qEnd : null,
-    }
-    if (consent && !farmer.consent_at) patch.consent = true
+    setOk(false)
     try {
-      setFarmer(await patchMe(patch))
-      setSaved(true)
+      setFarmer(await patchMe({ notify_schedule: s }))
+      setOk(true)
       haptic('success')
     } catch (e) {
+      setValue(prev)
       setError(e instanceof Error ? e.message : String(e))
       haptic('error')
     } finally {
@@ -54,90 +89,84 @@ export function SettingsPage() {
   }
 
   return (
-    <Page title="Sozlamalar">
-      <Card title="Profil">
-        <KeyValue
-          items={[
-            { label: 'Ism', value: farmer.first_name ?? <NoData text="—" /> },
-            ...(farmer.username ? [{ label: 'Telegram', value: `@${farmer.username}` }] : []),
-            { label: 'Kirish usuli', value: mode === 'telegram' ? 'Telegram' : <>Demo <DemoBadge /></> },
-          ]}
-        />
-      </Card>
-
-      <Card title="Xo'jalik joylashuvi">
-        <div>{farmer.farm_location ? <span className="mono">{formatLatLon(farmer.farm_location)}</span> : <NoData text="Belgilanmagan" />}</div>
-        <button type="button" className="btn btn--secondary btn--block" onClick={() => navigate('/location')}>
-          {farmer.farm_location ? 'Joylashuvni yangilash' : 'Joylashuvni belgilash'}
-        </button>
-      </Card>
-
-      <Card title="Hisobot intervali">
-        <p className="muted small">Har bir dala bo'yicha hisobot shu oraliqda yuboriladi. Kritik ogohlantirishlar darhol keladi.</p>
-        <div className="chips" role="radiogroup" aria-label="Hisobot intervali">
-          {INTERVALS.map((h) => (
-            <button
-              key={h}
-              type="button"
-              role="radio"
-              aria-checked={interval === h}
-              className={`btn btn--chip ${interval === h ? 'is-active' : ''}`}
-              onClick={() => setReportInterval(h)}
-            >
-              {h} soat
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      <Card title="Sokin soatlar">
-        <label className="switch">
-          <input type="checkbox" checked={quietOn} onChange={(e) => setQuietOn(e.target.checked)} />
-          <span>Sokin soatlarni yoqish</span>
-        </label>
-        {quietOn && (
-          <div className="two-cols">
-            <FormRow label="Boshlanishi" htmlFor="q-start">
-              <select id="q-start" className="input" value={qStart} onChange={(e) => setQStart(Number(e.target.value))}>
-                {HOURS.map((h) => (
-                  <option key={h} value={h}>
-                    {hh(h)}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Tugashi" htmlFor="q-end">
-              <select id="q-end" className="input" value={qEnd} onChange={(e) => setQEnd(Number(e.target.value))}>
-                {HOURS.map((h) => (
-                  <option key={h} value={h}>
-                    {hh(h)}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-          </div>
-        )}
-        <p className="muted small">Toshkent vaqti bo'yicha. 🔴 Kritik ogohlantirishlar sokin soatlarda ham keladi.</p>
-      </Card>
-
-      <Card title="Ma'lumotlarni qayta ishlashga rozilik">
-        {farmer.consent_at ? (
-          <div>✅ Rozilik berilgan: {formatDateTime(farmer.consent_at)}</div>
-        ) : (
-          <label className="switch">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>
-              Dalalarim, sensor va hosil ma'lumotlarim tavsiyalar tayyorlash uchun qayta ishlanishiga roziman.
-            </span>
-          </label>
-        )}
-      </Card>
-
+    <Card title={t('settings.notify')} action={ok ? <span className="saved">✓ {t('common.saved')}</span> : busy ? <span className="spinner spinner--sm" /> : undefined}>
+      <div className="radio-list" role="radiogroup" aria-label={t('settings.notify')}>
+        {SCHEDULES.map((s) => (
+          <button
+            key={s}
+            type="button"
+            role="radio"
+            aria-checked={value === s}
+            className={`radio ${value === s ? 'is-active' : ''}`}
+            onClick={() => choose(s)}
+            disabled={busy}
+          >
+            <span className="radio__dot" aria-hidden="true" />
+            <span className="radio__label">{t(SCHEDULE_LABEL[s])}</span>
+          </button>
+        ))}
+      </div>
+      <p className="muted small">{t('settings.notifyHint')}</p>
       {error && <ErrorBox error={error} />}
-      {saved && !dirty && <div className="muted center">✅ Saqlandi</div>}
-      <button type="button" className="btn btn--primary btn--block btn--lg" disabled={busy || !dirty} onClick={save}>
-        {busy ? 'Saqlanmoqda…' : 'Saqlash'}
-      </button>
+    </Card>
+  )
+}
+
+function LanguageSection() {
+  const { t, lang } = useI18n()
+  const { setFarmer } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const choose = async (l: Lang) => {
+    if (busy || l === lang) return
+    const prev = getLang()
+    setLang(l) // the whole UI switches immediately
+    setBusy(true)
+    setError(null)
+    try {
+      const f = await patchMe({ language: l })
+      // Keep the choice even if an older backend does not echo the language back.
+      setFarmer(toLang(f.language) ? f : { ...f, language: l })
+      haptic('success')
+    } catch (e) {
+      setLang(prev)
+      setError(e instanceof Error ? e.message : String(e))
+      haptic('error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title={t('settings.language')}>
+      <div className="segmented" role="radiogroup" aria-label={t('settings.language')}>
+        {LANGS.map((l) => (
+          <button
+            key={l}
+            type="button"
+            role="radio"
+            aria-checked={lang === l}
+            className={`segmented__item ${lang === l ? 'is-active' : ''}`}
+            onClick={() => choose(l)}
+            disabled={busy}
+          >
+            {LANG_LABEL[l]}
+          </button>
+        ))}
+      </div>
+      {error && <ErrorBox error={error} />}
+    </Card>
+  )
+}
+
+export function SettingsPage() {
+  const { t } = useI18n()
+  return (
+    <Page title={t('settings.title')}>
+      <FieldsSection />
+      <NotifySection />
+      <LanguageSection />
     </Page>
   )
 }

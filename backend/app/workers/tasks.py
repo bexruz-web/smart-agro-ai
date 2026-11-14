@@ -1,7 +1,7 @@
 """Fon vazifalari. Har bir vazifa o'z event loop'ida ishlaydi, shuning uchun DB engine NullPool bilan yaratiladi."""
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -63,13 +63,19 @@ def bootstrap_field(field_id: int):
 
 @celery.task(name="app.workers.tasks.dispatch_due_reports")
 def dispatch_due_reports():
+    """Har 15 daqiqada: fermer jadvali (daily3 / 2h / 4h / 8h / 10h / weekly / monthly) bo'yicha vaqti kelgan dalalar."""
+    from zoneinfo import ZoneInfo
+
+    from app.domain.schedule import is_due
+
     async def go(session):
         now = datetime.now(timezone.utc)
         res = await session.execute(select(Field, Farmer).join(Farmer, Farmer.id == Field.farmer_id))
         queued = 0
         for f, farmer in res.all():
-            interval = timedelta(hours=farmer.report_interval_hours or 4)
-            if f.last_report_at is None or now - f.last_report_at >= interval - timedelta(minutes=5):
+            tz = ZoneInfo(farmer.timezone or "Asia/Tashkent")
+            last = f.last_report_at.astimezone(tz) if f.last_report_at else None
+            if is_due(farmer.notify_schedule or "daily3", now.astimezone(tz), last):
                 run_pipeline.delay(f.id, "report")
                 queued += 1
         return queued

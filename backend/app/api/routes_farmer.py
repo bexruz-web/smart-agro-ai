@@ -30,6 +30,7 @@ from app.db.session import get_db
 from app.domain import knowledge
 from app.domain.climate import climate_shift
 from app.domain.geo import GeometryError, grid_key
+from app.core.i18n import IRRIGATION_TYPES, WATER_SOURCES, norm_lang, pick
 from app.domain.qc import METRIC_LABEL_UZ
 from app.services import dashboard as dash
 from app.services import farmers as farmer_svc
@@ -52,7 +53,7 @@ async def auth_telegram(body: AuthTelegramIn, db: AsyncSession = Depends(get_db)
     try:
         user = validate_init_data(body.init_data, s.telegram_bot_token, s.init_data_max_age_sec)
     except InitDataError as e:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Telegram ma'lumoti tasdiqlanmadi: {e}")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Telegram data could not be verified: {e}")
     farmer = await farmer_svc.upsert_from_telegram(db, user)
     return {"access_token": create_access_token(farmer.id), "farmer": farmer_svc.farmer_out(farmer)}
 
@@ -60,10 +61,10 @@ async def auth_telegram(body: AuthTelegramIn, db: AsyncSession = Depends(get_db)
 @router.post("/auth/demo", response_model=AuthOut)
 async def auth_demo(db: AsyncSession = Depends(get_db)):
     if not get_settings().demo_mode:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo rejimi o'chirilgan")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo mode is disabled")
     farmer = await db.scalar(select(Farmer).where(Farmer.is_demo.is_(True)).order_by(Farmer.id))
     if farmer is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo fermer yaratilmagan (make seed)")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo farmer has not been created (run make seed)")
     return {"access_token": create_access_token(farmer.id), "farmer": farmer_svc.farmer_out(farmer)}
 
 
@@ -89,20 +90,34 @@ async def patch_me(body: MePatch, farmer: Farmer = Depends(current_farmer), db: 
         farmer.farm_location = from_shape(Point(loc["lon"], loc["lat"]), srid=4326)
     if data.get("consent"):
         farmer_svc.give_consent(farmer)
+    if data.get("language"):
+        farmer.language = data["language"]
+    if data.get("notify_schedule"):
+        farmer.notify_schedule = data["notify_schedule"]
     await db.commit()
     await db.refresh(farmer)
     return farmer_svc.farmer_out(farmer)
 
 
 @router.get("/crops")
-async def crops():
-    return [{"key": k, "name_uz": c["name_uz"], "family": c["family"], "family_uz": c["family_uz"]}
-            for k, c in knowledge.load_crops()["crops"].items()]
+async def crops(lang: str | None = None):
+    lg = norm_lang(lang)
+    return [{"key": k, "name": c.get(f"name_{lg}") or c["name_uz"], "name_uz": c["name_uz"], "family": c["family"],
+             "family_uz": c["family_uz"]} for k, c in knowledge.load_crops()["crops"].items()]
 
 
 @router.get("/soil-textures")
-async def soil_textures():
-    return [{"key": k, "name_uz": v["name_uz"]} for k, v in knowledge.load_soils()["textures"].items()]
+async def soil_textures(lang: str | None = None):
+    lg = norm_lang(lang)
+    return [{"key": k, "name": v.get(f"name_{lg}") or v["name_uz"], "name_uz": v["name_uz"]}
+            for k, v in knowledge.load_soils()["textures"].items()]
+
+
+@router.get("/options")
+async def options(lang: str | None = None):
+    lg = norm_lang(lang)
+    return {"irrigation_types": [{"key": k, "name": pick(v, lg)} for k, v in IRRIGATION_TYPES.items()],
+            "water_sources": [{"key": k, "name": pick(v, lg)} for k, v in WATER_SOURCES.items()]}
 
 
 # ---------------- Dalalar
@@ -114,14 +129,16 @@ async def _field_out(db: AsyncSession, f: Field, warnings: list[str] | None = No
         "crop_name_uz": knowledge.crop(f.crop)["name_uz"] if f.crop else None, "planting_date": f.planting_date,
         "soil_texture": f.soil_texture, "water_available_m3_ha": f.water_available_m3_ha, "soil_ph": f.soil_ph,
         "soil_ec_ds_m": f.soil_ec_ds_m, "created_at": f.created_at, "is_demo": f.is_demo, "warnings": warnings or [],
+        "irrigation_type": f.irrigation_type, "water_source": f.water_source,
+        "location": {"lat": f.centroid_lat, "lon": f.centroid_lon}, "status": f.status,
     }
 
 
 def _check_refs(data: dict) -> None:
     if data.get("crop") and data["crop"] not in knowledge.crop_keys():
-        raise HTTPException(422, f"Noma'lum ekin: {data['crop']}")
+        raise HTTPException(422, f"Unknown crop: {data['crop']}")
     if data.get("soil_texture") and data["soil_texture"] not in knowledge.load_soils()["textures"]:
-        raise HTTPException(422, f"Noma'lum tuproq turi: {data['soil_texture']}")
+        raise HTTPException(422, f"Unknown soil type: {data['soil_texture']}")
 
 
 @router.get("/fields")
@@ -134,15 +151,23 @@ async def list_fields(farmer: Farmer = Depends(current_farmer), db: AsyncSession
 async def create_field(body: FieldIn, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
     data = body.model_dump()
     _check_refs(data)
+    if data.get("geometry") is None:
+        if not data.get("location") or not data.get("area_ha"):
+            raise HTTPException(422, "Field location (map pin) and area (ha) are required")
+        data["geometry"] = field_svc.square_geojson(data["location"]["lat"], data["location"]["lon"], data["area_ha"])
+        data["drawing_method"] = "pin"
     try:
         m = await field_svc.measure(db, data["geometry"])
     except GeometryError as e:
         raise HTTPException(422, str(e))
+    if data.get("area_ha"):
+        m["area_ha"] = data["area_ha"]  # konsepsiya: fermer kiritgan taxminiy maydon
     warnings = await field_svc.overlap_warnings(db, farmer.id, m["wkt_geojson"])
     f = Field(farmer_id=farmer.id, name=data["name"], area_ha=m["area_ha"], centroid_lat=m["centroid_lat"],
               centroid_lon=m["centroid_lon"], drawing_method=data["drawing_method"], crop=data["crop"],
               planting_date=data["planting_date"], soil_texture=data["soil_texture"],
               water_available_m3_ha=data["water_available_m3_ha"], soil_ph=data["soil_ph"], soil_ec_ds_m=data["soil_ec_ds_m"],
+              irrigation_type=data.get("irrigation_type"), water_source=data.get("water_source"),
               geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(m["wkt_geojson"]), 4326), is_demo=farmer.is_demo)
     db.add(f)
     if data["crop"]:
@@ -175,6 +200,11 @@ async def patch_field(field_id: int, body: FieldPatch, farmer: Farmer = Depends(
     data = body.model_dump(exclude_unset=True)
     _check_refs(data)
     warnings: list[str] = []
+    loc, area = data.pop("location", None), data.pop("area_ha", None)
+    if not data.get("geometry") and (loc or area):
+        lat = loc["lat"] if loc else f.centroid_lat
+        lon = loc["lon"] if loc else f.centroid_lon
+        data["geometry"] = field_svc.square_geojson(lat, lon, area or f.area_ha)
     if data.get("geometry"):
         try:
             m = await field_svc.measure(db, data.pop("geometry"))
@@ -182,7 +212,7 @@ async def patch_field(field_id: int, body: FieldPatch, farmer: Farmer = Depends(
             raise HTTPException(422, str(e))
         warnings = await field_svc.overlap_warnings(db, farmer.id, m["wkt_geojson"], exclude_id=f.id)
         f.geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(m["wkt_geojson"]), 4326)
-        f.area_ha, f.centroid_lat, f.centroid_lon = m["area_ha"], m["centroid_lat"], m["centroid_lon"]
+        f.area_ha, f.centroid_lat, f.centroid_lon = (area or m["area_ha"]), m["centroid_lat"], m["centroid_lon"]
     else:
         data.pop("geometry", None)
     crop_changed = "crop" in data and data["crop"] != f.crop
@@ -229,7 +259,7 @@ async def timeseries(field_id: int, metric: str, from_: datetime | None = Query(
         daily = await weather.load_power_daily(db, grid_key(f.centroid_lat, f.centroid_lon), from_.date(), to.date())
         return {"metric": metric, "unit": unit, "label_uz": f"NASA POWER {key}", "source": "nasa",
                 "points": [{"t": d.isoformat(), "v": v.get(key), "quality": None} for d, v in sorted(daily.items()) if v.get(key) is not None]}
-    raise HTTPException(422, "Noma'lum metrika")
+    raise HTTPException(422, "Unknown metric")
 
 
 @router.get("/fields/{field_id}/forecast")
@@ -266,7 +296,7 @@ async def recommendations(field_id: int, status_: str | None = Query(default=Non
 async def rec_feedback(rec_id: int, body: FeedbackIn, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
     rec = await fb.record_recommendation_feedback(db, farmer, rec_id, body.action, body.comment, "miniapp")
     if rec is None:
-        raise HTTPException(404, "Tavsiya topilmadi")
+        raise HTTPException(404, "Recommendation not found")
     return {"ok": True}
 
 
@@ -304,7 +334,7 @@ async def start_season(field_id: int, body: SeasonIn, farmer: Farmer = Depends(c
 async def harvest(season_id: int, body: HarvestIn, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
     s = await db.get(CropSeason, season_id)
     if s is None:
-        raise HTTPException(404, "Mavsum topilmadi")
+        raise HTTPException(404, "Season not found")
     f = await owned_field(s.field_id, farmer, db)
     if s.predicted_yield_t_ha is None and f.crop == s.crop:
         yf = await rotation_service.yield_forecast(db, f)
@@ -346,9 +376,30 @@ async def chat(body: ChatIn, farmer: Farmer = Depends(current_farmer), db: Async
 
 
 @router.get("/chat/history")
-async def chat_history(farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(ChatMessage).where(ChatMessage.farmer_id == farmer.id).order_by(ChatMessage.id.desc()).limit(50))
+async def chat_history(field_id: int | None = None, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
+    q = select(ChatMessage).where(ChatMessage.farmer_id == farmer.id)
+    if field_id is not None:
+        q = q.where(ChatMessage.field_id == field_id)
+    res = await db.execute(q.order_by(ChatMessage.id.desc()).limit(50))
     return [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in reversed(res.scalars().all())]
+
+
+@router.get("/fields/{field_id}/agronom")
+async def agronom(field_id: int, lang: str | None = None, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
+    """Dala ichidagi AI Agronom: dinamik savollar + shu dalaning suhbat tarixi."""
+    from app.agent import suggestions
+    from app.db.models import Analysis
+
+    f = await owned_field(field_id, farmer, db)
+    lg = norm_lang(lang or farmer.language)
+    snap = await db.scalar(select(Analysis.snapshot).where(Analysis.field_id == f.id).order_by(Analysis.id.desc()).limit(1))
+    facts = (snap or {}).get("facts", {})
+    res = await db.execute(select(ChatMessage).where(ChatMessage.farmer_id == farmer.id, ChatMessage.field_id == f.id)
+                           .order_by(ChatMessage.id.desc()).limit(50))
+    history = list(reversed(res.scalars().all()))
+    last_user = next((m.content for m in reversed(history) if m.role == "user"), None)
+    return {"suggestions": suggestions.build(f, facts, last_user, lg),
+            "history": [{"role": m.role, "content": m.content, "created_at": m.created_at, "refused": m.refused} for m in history]}
 
 
 # ---------------- Qurilmalar
@@ -364,7 +415,7 @@ async def create_device(body: DeviceIn, farmer: Farmer = Depends(current_farmer)
     f = await owned_field(body.field_id, farmer, db)
     count = await db.scalar(select(func.count()).select_from(Device).where(Device.farmer_id == farmer.id))
     if count >= 20:
-        raise HTTPException(422, "Qurilmalar soni chegarasi (20) to'ldi")
+        raise HTTPException(422, "Device limit (20) reached")
     token = new_device_token()
     d = Device(device_id=new_device_id(), farmer_id=farmer.id, field_id=f.id, name=body.name, token_hash=hash_token(token),
                is_demo=farmer.is_demo)
@@ -378,7 +429,7 @@ async def create_device(body: DeviceIn, farmer: Farmer = Depends(current_farmer)
 async def delete_device(device_pk: int, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
     d = await db.get(Device, device_pk)
     if d is None or d.farmer_id != farmer.id:
-        raise HTTPException(404, "Qurilma topilmadi")
+        raise HTTPException(404, "Device not found")
     await db.delete(d)
     await db.commit()
     return Response(status_code=204)

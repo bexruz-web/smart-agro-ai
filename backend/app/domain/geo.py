@@ -14,25 +14,25 @@ class GeometryError(ValueError):
 
 def validate_polygon_geojson(geojson: dict) -> Polygon:
     if not isinstance(geojson, dict) or geojson.get("type") != "Polygon":
-        raise GeometryError("Geometriya GeoJSON Polygon bo'lishi kerak")
+        raise GeometryError("Geometry must be a GeoJSON Polygon")
     rings = geojson.get("coordinates") or []
     if len(rings) != 1:
-        raise GeometryError("Polygon bitta tashqi chegaradan iborat bo'lishi kerak (teshiklarsiz)")
+        raise GeometryError("Polygon must have a single outer ring (no holes)")
     ring = [tuple(map(float, p[:2])) for p in rings[0]]
     if ring and ring[0] != ring[-1]:
         ring.append(ring[0])  # yopilmagan halqani yopamiz
     distinct = {(round(x, 7), round(y, 7)) for x, y in ring}
     if len(distinct) < 3:
-        raise GeometryError("Kamida 3 ta har xil nuqta kerak")
+        raise GeometryError("At least 3 distinct points are required")
     for lon, lat in ring:
         if not (-180 <= lon <= 180 and -90 <= lat <= 90):
-            raise GeometryError("Koordinatalar noto'g'ri: [uzunlik, kenglik] tartibida bo'lishi kerak")
+            raise GeometryError("Invalid coordinates: use [longitude, latitude] order")
     poly = shape({"type": "Polygon", "coordinates": [ring]})
     if not poly.is_valid:
         reason = explain_validity(poly)
         if "Self-intersection" in reason:
-            raise GeometryError("Polygon o'z-o'zini kesib o'tmoqda — nuqtalar tartibini tekshiring")
-        raise GeometryError(f"Polygon noto'g'ri: {reason}")
+            raise GeometryError("The polygon intersects itself — check the order of the points")
+        raise GeometryError(f"Invalid polygon: {reason}")
     return poly
 
 

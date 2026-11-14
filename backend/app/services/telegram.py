@@ -1,10 +1,12 @@
 """Telegram Bot API orqali xabar yuborish (worker va API ichidan). 429 bo'lsa retry_after kutiladi."""
 import asyncio
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
 from app.core.config import get_settings
+from app.core.i18n import t
 
 log = logging.getLogger(__name__)
 API = "https://api.telegram.org/bot{token}/{method}"
@@ -16,29 +18,19 @@ class TelegramSendError(RuntimeError):
         self.blocked = blocked
 
 
-def recommendation_keyboard(rec_id: int, webapp_url: str | None, field_id: int | None) -> dict:
-    rows = [
-        [
-            {"text": "✅ Bajardim", "callback_data": f"rec:{rec_id}:done"},
-            {"text": "⏰ Keyinroq", "callback_data": f"rec:{rec_id}:later"},
-            {"text": "❌ Kerak emas", "callback_data": f"rec:{rec_id}:rejected"},
-        ],
-        [
-            {"text": "👍 Foydali", "callback_data": f"rec:{rec_id}:useful"},
-            {"text": "👎 Foydasiz", "callback_data": f"rec:{rec_id}:not_useful"},
-        ],
-    ]
-    if webapp_url:
-        url = webapp_url + (f"#/fields/{field_id}" if field_id else "")
-        rows.append([{"text": "📊 Batafsil", "web_app": {"url": url}}])
-    return {"inline_keyboard": rows}
+def webapp_url() -> str | None:
+    """Mini App faqat haqiqiy HTTPS domenda ochiladi; to'ldirilmagan qiymat (masalan YANGI_DOMEN) — yo'q."""
+    url = get_settings().webapp_url
+    host = urlparse(url).hostname or ""
+    return url if url.startswith("https://") and "." in host else None
 
 
-def details_keyboard(webapp_url: str | None, field_id: int | None) -> dict | None:
-    if not webapp_url:
+def open_field_keyboard(field_id: int | None, lang: str) -> dict | None:
+    base = webapp_url()
+    if not base:
         return None
-    url = webapp_url + (f"#/fields/{field_id}" if field_id else "")
-    return {"inline_keyboard": [[{"text": "📊 Batafsil (Mini App)", "web_app": {"url": url}}]]}
+    url = base + (f"#/fields/{field_id}" if field_id else "")
+    return {"inline_keyboard": [[{"text": t("open_field", lang), "web_app": {"url": url}}]]}
 
 
 async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> int | None:
@@ -49,15 +41,13 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
     if reply_markup:
         body["reply_markup"] = reply_markup
     async with httpx.AsyncClient(timeout=30) as client:
-        for attempt in range(3):
+        for _ in range(3):
             resp = await client.post(API.format(token=token, method="sendMessage"), json=body)
             data = resp.json()
             if data.get("ok"):
                 return data["result"]["message_id"]
             if resp.status_code == 429:
-                wait = data.get("parameters", {}).get("retry_after", 2)
-                await asyncio.sleep(min(wait, 30))
+                await asyncio.sleep(min(data.get("parameters", {}).get("retry_after", 2), 30))
                 continue
-            blocked = resp.status_code == 403
-            raise TelegramSendError(f"Telegram {resp.status_code}: {data.get('description')}", blocked=blocked)
+            raise TelegramSendError(f"Telegram {resp.status_code}: {data.get('description')}", blocked=resp.status_code == 403)
     raise TelegramSendError("Telegram: qayta urinishlar tugadi")

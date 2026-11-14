@@ -47,6 +47,13 @@ EXPLAIN_SCHEMA = {
     "additionalProperties": False,
 }
 
+ADVICE_SCHEMA = {
+    "type": "object",
+    "properties": {"lines": {"type": "array", "items": {"type": "string"}}},
+    "required": ["lines"],
+    "additionalProperties": False,
+}
+
 CHAT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -128,6 +135,18 @@ class AnthropicProvider:
         )
         data = json.loads(_first_text(resp))
         return ExplainResult(items=data["items"], summary_uz=data["summary_uz"], usage=_usage(self.model, resp))
+
+    async def advice(self, facts: dict, lang_name: str) -> list[str] | None:
+        from app.agent.prompts import ADVICE_SYSTEM_V1
+
+        resp = await self._create(
+            max_tokens=2000,
+            system=[{"type": "text", "text": ADVICE_SYSTEM_V1, "cache_control": {"type": "ephemeral"}}],
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": ADVICE_SCHEMA}},
+            messages=[{"role": "user", "content": f"Til: {lang_name}\n\nFAKTLAR:\n{json.dumps(facts, ensure_ascii=False, default=str)}"}],
+        )
+        data = json.loads(_first_text(resp))
+        return [str(x) for x in data.get("lines", []) if str(x).strip()][:2] or None
 
     async def chat(self, system: str, history: list[dict], message: str, tools: list[dict],
                    execute: ToolExecutor) -> ChatResult:

@@ -99,10 +99,10 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
         if now - r.ts > SENSOR_FRESH:
             continue
         demo = r.source in ("simulator", "demo")
-        label = "📡 Sensor" + (" (DEMO/simulyator)" if demo else "")
+        label = "📡 Sensor" + (" (DEMO/simulator)" if demo else "")
         value = bool(r.value) if metric == "rain" else r.value
         snap.add(metric, METRIC_LABEL_UZ.get(metric, metric), value, SENSOR_UNITS.get(metric, r.unit), "sensor",
-                 label, r.ts, "dala nuqtasi (sensor joyi)", r.quality_flag, demo)
+                 label, r.ts, "field point (sensor location)", r.quality_flag, demo)
     sm = [(r.ts, r.value) for r in readings if r.metric == "soil_moisture" and r.quality_flag == "ok"]
     if len(sm) >= 4 and (sm[-1][0] - sm[0][0]) >= timedelta(hours=3):
         xs = [(t - sm[0][0]).total_seconds() / 86400 for t, _ in sm]
@@ -111,17 +111,17 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
         den = sum((x - mx) ** 2 for x in xs)
         if den > 0:
             slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
-            snap.add("soil_moisture_trend_24h", "Tuproq namligi trendi (24 soat)", slope, "%/kun", "model",
-                     "🧮 Sensor trendi", sm[-1][0], "dala nuqtasi")
+            snap.add("soil_moisture_trend_24h", "Soil moisture trend (24 h)", slope, "%/kun", "model",
+                     "🧮 Sensor trend", sm[-1][0], "field point")
     bad_last_hour = sum(1 for r in readings if r.quality_flag in ("bad", "suspect") and r.ts >= now - timedelta(hours=1))
     if readings:
         snap.add("sensor_bad_last_hour", "Shubhali/noto'g'ri o'lchovlar (1 soat)", bad_last_hour, "ta", "model",
-                 "🧮 Sifat nazorati", now, "dala nuqtasi")
+                 "🧮 Quality control", now, "field point")
     devices = (await session.execute(select(Device).where(Device.field_id == field_.id))).scalars().all()
     if devices:
         offline = [d.device_id for d in devices if device_offline(
             d.last_seen_at, now, settings.expected_sensor_interval_min, settings.sensor_offline_factor)]
-        snap.add("devices_offline", "Aloqasiz qurilmalar", len(offline), "ta", "model", "🧮 Qurilma monitoringi", now,
+        snap.add("devices_offline", "Aloqasiz qurilmalar", len(offline), "ta", "model", "🧮 Device monitoring", now,
                  ", ".join(offline) or "—")
 
     # ---------- Prognoz (Open-Meteo)
@@ -166,7 +166,7 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
         snap.add("fc_wind_max_48h", "Maksimal shamol (48 soat)", smax(h48, "wind_speed_10m"), "m/s", "forecast", fl, issued, res)
         snap.add("fc_hail_48h", "Do'l ehtimoli (momaqaldiroq kodi 96/99)",
                  any(h.get("weather_code") in open_meteo.HAIL_CODES for h in h48), "", "forecast", fl, issued,
-                 res + "; do'l ma'lumoti cheklangan — past ishonchlilik")
+                 res + "; hail data is limited — low confidence")
         next_days = [d for d in daily if d["time"].date() >= today][:4]
         if next_days:
             d0 = next_days[0]
@@ -187,7 +187,7 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
     power = await weather.load_power_daily(session, gkey, today - timedelta(days=400), today)
     if power:
         pl = nasa_power.SOURCE_LABEL
-        res = "~50 km grid katagi (hudud foni)"
+        res = "~50 km grid cell (regional background)"
 
         def last_with(key):
             for d in sorted(power, reverse=True):
@@ -218,13 +218,13 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
                     d = last_p - timedelta(days=i)
                     b30 += base.get(d.month, 0) / calendar.monthrange(d.year, d.month)[1]
                 snap.add("nasa_precip_30d_baseline", "Yog'in me'yori, 30 kun (1991–2020)", b30, "mm", "nasa",
-                         pl + " · iqlim bazasi", last_p, res)
+                         pl + " · climate baseline", last_p, res)
 
     # ---------- Fermer ma'lumotlari va ekin holati
     if field_.soil_ph is not None:
-        snap.add("soil_ph", "Tuproq pH (laboratoriya)", field_.soil_ph, "", "farmer", "✍️ Fermer kiritgan", None, "dala")
+        snap.add("soil_ph", "Tuproq pH (laboratoriya)", field_.soil_ph, "", "farmer", "✍️ Farmer input", None, "field")
     if field_.soil_ec_ds_m is not None:
-        snap.add("soil_ec", "Sho'rlanish ECe (laboratoriya)", field_.soil_ec_ds_m, "dS/m", "farmer", "✍️ Fermer kiritgan", None, "dala")
+        snap.add("soil_ec", "Sho'rlanish ECe (laboratoriya)", field_.soil_ec_ds_m, "dS/m", "farmer", "✍️ Farmer input", None, "field")
 
     crop = None
     planting = None
@@ -236,8 +236,8 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
             snap.assumptions.append(f"Ekish sanasi kiritilmagan — odatiy sana ({planting.isoformat()}) olindi")
         st = knowledge.stage_on(crop, planting, today)
         snap.stage = st.stage
-        snap.add("crop_stage", "Rivojlanish bosqichi", st.stage_uz, "", "model", "🧮 FAO-56 bosqichlari", today, "dala")
-        snap.add("days_since_planting", "Ekilgandan beri", st.day, "kun", "farmer", "✍️ Fermer / taxmin", planting, "dala")
+        snap.add("crop_stage", "Rivojlanish bosqichi", st.stage_uz, "", "model", "🧮 FAO-56 crop stages", today, "field")
+        snap.add("days_since_planting", "Ekilgandan beri", st.day, "kun", "farmer", "✍️ Farmer input / estimate", planting, "field")
         stages = crop["stages_days"]
         acc = 0
         for name in ("ini", "dev", "mid", "late"):
@@ -246,12 +246,12 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
                 order = ["ini", "dev", "mid", "late"]
                 nxt = order.index(name) + 1
                 if nxt < len(order):
-                    snap.add("days_to_next_stage", "Keyingi bosqichgacha", acc - st.day, "kun", "model", "🧮 FAO-56", today, "dala")
-                    snap.add("next_stage", "Keyingi bosqich", knowledge.STAGE_UZ[order[nxt]], "", "model", "🧮 FAO-56", today, "dala")
+                    snap.add("days_to_next_stage", "Keyingi bosqichgacha", acc - st.day, "kun", "model", "🧮 FAO-56", today, "field")
+                    snap.add("next_stage", "Keyingi bosqich", knowledge.STAGE_UZ[order[nxt]], "", "model", "🧮 FAO-56", today, "field")
                 break
         if 0 <= st.day <= knowledge.season_length(crop):
             snap.add("days_to_harvest", "Hosil yig'imigacha (taxmin)", knowledge.season_length(crop) - st.day, "kun", "model",
-                     "🧮 FAO-56 mavsum uzunligi", today, "dala")
+                     "🧮 FAO-56 season length", today, "field")
     else:
         snap.assumptions.append("Dalaga ekin kiritilmagan — suv balansi etalon o't (Kc=1.0) bo'yicha hisoblandi")
     if daily:
@@ -302,27 +302,27 @@ async def build_snapshot(session: AsyncSession, field_: Field, now: datetime | N
         sensor_sm = snap.facts.get("soil_moisture")
         result = run_balance(days, sw, start_depletion=0.5 * sw.raw_mm)
         depletion = result.depletion
-        label = "🧮 FAO-56 suv balansi (" + " + ".join(sorted(sources_used)) + ")"
+        label = "🧮 FAO-56 water balance (" + " + ".join(sorted(sources_used)) + ")"
         if sensor_sm and sensor_sm["quality"] == "ok":
             depletion = depletion_from_vwc(sensor_sm["value"], sw)
-            label = "🧮 Sensor + FAO-56 (sensor bo'yicha tuzatilgan)"
+            label = "🧮 FAO-56 water balance (sensor-corrected)"
             snap.assumptions.append("Sensor bitta chuqurlikda o'lchaydi — butun ildiz zonasi namligi bir xil deb olindi")
         else:
             snap.assumptions.append("Balans boshida tanqislik RAW ning 50% i deb olindi (sensor ma'lumoti yo'q)")
         snap.balance_days = [vars(x) for x in result.days]
         ks = 1.0 if depletion <= sw.raw_mm else max(0.0, (sw.taw_mm - depletion) / ((1 - sw.p) * sw.taw_mm))
-        snap.add("depletion_mm", "Ildiz zonasi suv tanqisligi", depletion, "mm", "model", label, now, "dala (model)")
-        snap.add("raw_mm", "Oson o'zlashtiriladigan suv (RAW)", sw.raw_mm, "mm", "model", "🧮 FAO-56 (tuproq+ekin)", now, "dala (model)")
-        snap.add("taw_mm", "Umumiy mavjud suv (TAW)", sw.taw_mm, "mm", "model", "🧮 FAO-56 (tuproq+ekin)", now, "dala (model)")
-        snap.add("ks", "Suv stressi koeffitsienti (Ks)", ks, "", "model", label, now, "dala (model)")
+        snap.add("depletion_mm", "Ildiz zonasi suv tanqisligi", depletion, "mm", "model", label, now, "field (model)")
+        snap.add("raw_mm", "Oson o'zlashtiriladigan suv (RAW)", sw.raw_mm, "mm", "model", "🧮 FAO-56 (soil + crop)", now, "field (model)")
+        snap.add("taw_mm", "Umumiy mavjud suv (TAW)", sw.taw_mm, "mm", "model", "🧮 FAO-56 (soil + crop)", now, "field (model)")
+        snap.add("ks", "Suv stressi koeffitsienti (Ks)", ks, "", "model", label, now, "field (model)")
         snap.add("stress_days_7d", "Suv stressi kunlari (7 kun)", sum(1 for x in result.days[-7:] if x.ks < 1), "kun",
-                 "model", label, now, "dala (model)")
+                 "model", label, now, "field (model)")
         last7 = days[-7:]
         snap.add("et0_7d_mean", "ET0 o'rtacha (7 kun)", statistics.fmean(x["et0"] for x in last7), "mm/kun", "model",
-                 label, now, "dala (model)")
-        snap.add("etc_today", "Ekin suv sarfi ETc (bugun)", days[-1]["etc"], "mm", "model", label, now, "dala (model)")
+                 label, now, "field (model)")
+        snap.add("etc_today", "Ekin suv sarfi ETc (bugun)", days[-1]["etc"], "mm", "model", label, now, "field (model)")
     if crop:
-        snap.add("gdd", "Faol harorat yig'indisi (GDD)", gdd_total, "°C·kun", "model", "🧮 NASA POWER + Open-Meteo", now, "dala (model)")
+        snap.add("gdd", "Faol harorat yig'indisi (GDD)", gdd_total, "°C·kun", "model", "🧮 NASA POWER + Open-Meteo", now, "field (model)")
     return snap
 
 

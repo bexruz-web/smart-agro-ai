@@ -19,17 +19,19 @@ from app.services import fields as field_svc
 
 DEMO_FIELDS = [
     {
-        "name": "Demo: Jizzax — bug'doy dalasi",
+        "name": "Demo: Jizzakh — winter wheat",
         "crop": "wheat_winter", "planting_date": date(2026, 10, 12), "soil_texture": "silt_loam",
         "water_available_m3_ha": 4500, "soil_ph": 7.9, "soil_ec_ds_m": 3.1,
+        "irrigation_type": "furrow", "water_source": "canal",
         "coords": [[67.900342, 40.027278], [67.90177, 40.027278], [67.90177, 40.024922], [67.900342, 40.024922]],
         "drawing_method": "quad",
         "history": [("cotton", date(2025, 4, 15), date(2025, 10, 5), 2.9, 3.1), ("wheat_winter", date(2024, 10, 10), date(2025, 6, 20), 5.1, 4.8)],
     },
     {
-        "name": "Demo: Sirdaryo — g'o'za dalasi",
+        "name": "Demo: Syrdarya — cotton",
         "crop": "cotton", "planting_date": date(2026, 4, 18), "soil_texture": "loam",
         "water_available_m3_ha": 7000, "soil_ph": 7.6, "soil_ec_ds_m": 5.2,
+        "irrigation_type": "drip", "water_source": "well",
         "coords": [[68.609949, 40.616788], [68.614563, 40.616871], [68.614783, 40.614369], [68.611816, 40.614203], [68.609949, 40.614786]],
         "drawing_method": "polygon",
         "history": [("cotton", date(2025, 4, 20), date(2025, 10, 10), 2.6, 3.0)],
@@ -41,7 +43,7 @@ async def seed(telegram_id: int | None, devices_file: Path) -> None:
     async with get_sessionmaker()() as s:
         farmer = await s.scalar(select(Farmer).where(Farmer.is_demo.is_(True)))
         if farmer is None:
-            farmer = Farmer(telegram_id=telegram_id or -1001, first_name="Demo fermer", is_demo=True,
+            farmer = Farmer(telegram_id=telegram_id or -1001, first_name="Demo farmer", is_demo=True, language="en",
                             report_interval_hours=4, quiet_hours_start=None, quiet_hours_end=None)
             s.add(farmer)
             await s.flush()
@@ -58,6 +60,7 @@ async def seed(telegram_id: int | None, devices_file: Path) -> None:
                       centroid_lon=m["centroid_lon"], drawing_method=spec["drawing_method"], crop=spec["crop"],
                       planting_date=spec["planting_date"], soil_texture=spec["soil_texture"],
                       water_available_m3_ha=spec["water_available_m3_ha"], soil_ph=spec["soil_ph"], soil_ec_ds_m=spec["soil_ec_ds_m"],
+                      irrigation_type=spec["irrigation_type"], water_source=spec["water_source"],
                       geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(m["wkt_geojson"]), 4326), is_demo=True)
             s.add(f)
             await s.flush()

@@ -22,10 +22,15 @@ export const config = {
   themeMode: (env.VITE_THEME_MODE === 'auto' ? 'auto' : 'light') as 'light' | 'auto',
 } as const
 
-/** Default map center when the farmer has no farm location yet (Uzbekistan). */
+/** Map center before the farmer has chosen a region (Uzbekistan). */
 export const DEFAULT_CENTER = { lat: 41.3, lon: 64.6 }
-export const DEFAULT_ZOOM = 6
+export const DEFAULT_ZOOM = 5
+/** Zoom for the farmer's region on the dashboard map. */
+export const REGION_ZOOM = 11
+/** Zoom for a single field (field page, form). */
+export const FIELD_ZOOM = 15
 
-/** Allowed field area (MAP-2). Server is authoritative; the client only previews. */
+/** Field area typed by the farmer (API_CONTRACT_V2: 0.05–5000 ha). */
 export const AREA_MIN_HA = 0.05
 export const AREA_MAX_HA = 5000
+export const NAME_MAX_LENGTH = 128

@@ -19,7 +19,7 @@ DAILY = [
     "temperature_2m_max", "temperature_2m_min", "precipitation_sum", "precipitation_probability_max",
     "snowfall_sum", "et0_fao_evapotranspiration", "wind_speed_10m_max", "shortwave_radiation_sum", "weather_code",
 ]
-SOURCE_LABEL = "🌦 Open-Meteo prognozi"
+SOURCE_LABEL = "🌦 Open-Meteo forecast"
 HAIL_CODES = {96, 99}  # momaqaldiroq + do'l (WMO); do'l ma'lumoti cheklangan — past ishonchlilik
 
 

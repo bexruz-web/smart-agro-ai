@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useI18n } from '../i18n'
 import { createMap } from './index'
 import type { MapController, MapOptions } from './types'
 
@@ -18,7 +19,8 @@ export function MapView({ options, onReady, className }: Props) {
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
   const optionsRef = useRef(options)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+  const { t } = useI18n()
 
   useEffect(() => {
     const host = ref.current
@@ -42,7 +44,7 @@ export function MapView({ options, onReady, className }: Props) {
       })
       .catch((e) => {
         console.error(e)
-        if (!cancelled) setError("Xaritani yuklab bo'lmadi")
+        if (!cancelled) setError(true)
       })
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => ctrl?.resize()) : null
     ro?.observe(el)
@@ -57,7 +59,7 @@ export function MapView({ options, onReady, className }: Props) {
   return (
     <div className={`map-view ${className ?? ''}`}>
       <div ref={ref} className="map-view__canvas" />
-      {error && <div className="map-view__error">{error}</div>}
+      {error && <div className="map-view__error">{t('map.error')}</div>}
     </div>
   )
 }

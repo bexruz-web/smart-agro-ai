@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent import chat as chat_agent
 from app.agent.pipeline import run_field_pipeline
 from app.api.deps import current_device, current_farmer, internal_auth, is_admin, owned_field
-from app.api.schemas import HarvestIn, IotPayload
+from app.api.schemas import HarvestIn, IotPayload, TelemetryIn
 from app.core.config import get_settings
 from app.db.models import CropSeason, Device, Farmer, Field
 from app.db.session import get_db
@@ -18,7 +18,7 @@ from app.domain import knowledge
 from app.services import farmers as farmer_svc
 from app.services import feedback as fb
 from app.services import rotation_service
-from app.services.ingest import ingest
+from app.services.ingest import ingest, ingest_telemetry
 
 router = APIRouter()
 
@@ -39,10 +39,22 @@ async def ready(db: AsyncSession = Depends(get_db)):
 @router.post("/api/v1/iot/readings")
 async def iot_readings(payload: IotPayload, device: Device = Depends(current_device), db: AsyncSession = Depends(get_db)):
     if payload.device_id != device.device_id:
-        raise HTTPException(403, "device_id token egasiga mos emas")
+        raise HTTPException(403, "device_id does not match the token owner")
     body = payload.model_dump()
     source = "demo" if device.is_demo else ("simulator" if (payload.fw or "").endswith("-sim") else "sensor")
     result = await ingest(db, device, body, source=source)
+    if result["accepted"] and device.field_id:
+        _enqueue_realtime(device.field_id)
+    return result
+
+
+@router.post("/api/v1/iot/telemetry")
+async def iot_telemetry(payload: TelemetryIn, device: Device = Depends(current_device), db: AsyncSession = Depends(get_db)):
+    """ESP32 + SIM7600G-H sxemasi (yoki uning simulyatori) telemetriyasi."""
+    if payload.device_id != device.device_id:
+        raise HTTPException(403, "device_id does not match the token owner")
+    source = "demo" if device.is_demo else ("simulator" if (payload.status or {}).get("simulated") else "sensor")
+    result = await ingest_telemetry(db, device, payload.model_dump(), source=source)
     if result["accepted"] and device.field_id:
         _enqueue_realtime(device.field_id)
     return result
@@ -80,6 +92,11 @@ class InternalChat(BaseModel):
     message: str = PField(min_length=1, max_length=2000)
 
 
+class InternalLanguage(BaseModel):
+    telegram_id: int
+    language: str = PField(pattern="^(uz|ru|en)$")
+
+
 class InternalLocation(BaseModel):
     telegram_id: int
     lat: float = PField(ge=-90, le=90)
@@ -94,7 +111,7 @@ class InternalHarvest(HarvestIn):
 async def _farmer_by_tg(db: AsyncSession, telegram_id: int) -> Farmer:
     farmer = await db.scalar(select(Farmer).where(Farmer.telegram_id == telegram_id))
     if farmer is None:
-        raise HTTPException(404, "Fermer ro'yxatdan o'tmagan")
+        raise HTTPException(404, "Farmer is not registered")
     return farmer
 
 
@@ -102,6 +119,14 @@ async def _farmer_by_tg(db: AsyncSession, telegram_id: int) -> Farmer:
 async def internal_upsert(user: TgUser, db: AsyncSession = Depends(get_db)):
     farmer = await farmer_svc.upsert_from_telegram(db, user.model_dump())
     return farmer_svc.farmer_out(farmer)
+
+
+@internal.post("/farmers/language")
+async def internal_language(body: InternalLanguage, db: AsyncSession = Depends(get_db)):
+    farmer = await _farmer_by_tg(db, body.telegram_id)
+    farmer.language = body.language
+    await db.commit()
+    return {"ok": True, "language": farmer.language}
 
 
 @internal.post("/farmers/location")
@@ -128,7 +153,7 @@ async def internal_feedback(body: InternalFeedback, db: AsyncSession = Depends(g
     farmer = await _farmer_by_tg(db, body.telegram_id)
     rec = await fb.record_recommendation_feedback(db, farmer, body.recommendation_id, body.action, None, "bot")
     if rec is None:
-        raise HTTPException(404, "Tavsiya topilmadi")
+        raise HTTPException(404, "Recommendation not found")
     return {"ok": True, "status": rec.status}
 
 
@@ -145,7 +170,7 @@ async def internal_harvest(body: InternalHarvest, db: AsyncSession = Depends(get
     season = await fb.active_season(db, f)
     if season is None:
         if not f.crop:
-            raise HTTPException(422, "Dalada ekin ko'rsatilmagan")
+            raise HTTPException(422, "No crop is set for this field")
         season = CropSeason(field_id=f.id, crop=f.crop, planting_date=f.planting_date, status="active")
         db.add(season)
         await db.flush()
@@ -201,11 +226,11 @@ SCENARIOS = {
 @router.post("/api/v1/admin/demo/{scenario}")
 async def demo_scenario(scenario: str, field_id: int, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
     if not (get_settings().demo_mode or is_admin(farmer)):
-        raise HTTPException(403, "Faqat DEMO_MODE yoki admin uchun")
+        raise HTTPException(403, "Available only in DEMO_MODE or for admins")
     f = await owned_field(field_id, farmer, db)
     device = await db.scalar(select(Device).where(Device.field_id == f.id).order_by(Device.id))
     if device is None:
-        raise HTTPException(422, "Dalaga qurilma bog'lanmagan — avval qurilma qo'shing")
+        raise HTTPException(422, "No device is linked to this field — add a device first")
     now = datetime.now(timezone.utc).replace(microsecond=0)
     if scenario == "sensor_fault":
         readings = [{"ts": now - timedelta(minutes=5 * i), "soil_moisture_vwc": 22.2, "air_temp_c": 85.0 if i == 0 else 21.0}
@@ -219,7 +244,7 @@ async def demo_scenario(scenario: str, field_id: int, farmer: Farmer = Depends(c
                 r[k] = v if isinstance(v, bool) else round(v[0] + random.uniform(-v[1], v[1]), 2)
             readings.append(r)
     else:
-        raise HTTPException(404, "Noma'lum ssenariy")
+        raise HTTPException(404, "Unknown scenario")
     seq = int(datetime.now(timezone.utc).timestamp() * 1000)  # demo paketlari qurilma seq oralig'idan ajralib turadi
     result = await ingest(db, device, {"seq": seq, "readings": readings, "fw": device.firmware}, source="demo")
     pipe = await run_field_pipeline(db, f.id, "demo")

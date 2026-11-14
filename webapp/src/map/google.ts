@@ -1,32 +1,44 @@
 /**
  * Google Maps provider (optional: VITE_MAP_PROVIDER=google + VITE_GOOGLE_MAPS_API_KEY).
- * Uses the "hybrid" (satellite + labels) map type. The removed Google Drawing
- * Library is replaced by Terra Draw's Google Maps adapter (MAP-5).
- * The API key is public in the bundle: restrict it by HTTP referrer (MAP-6).
+ * Uses the "hybrid" (satellite + labels) map type. The API key is public in the bundle:
+ * restrict it by HTTP referrer.
  */
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
-import { TerraDrawGoogleMapsAdapter } from 'terra-draw-google-maps-adapter'
 import { config } from '../config'
+import { getLang } from '../i18n'
 import type { LatLon } from '../utils/geo'
-import { hexVar, polygonColors } from './colors'
-import { createPolygonDrawSession } from './terraDraw'
-import type { MapController, MapFactory, PolygonDrawSession } from './types'
+import { accentColor, dotSvg, outlineColor, pinSvg, regionColor } from './colors'
+import type { MapController, MapFactory, MapMarker } from './types'
 
 let optionsSet = false
 
 const toLL = (p: LatLon): google.maps.LatLngLiteral => ({ lat: p.lat, lng: p.lon })
 
+function markerIcon(m: MapMarker): google.maps.Icon {
+  const outline = outlineColor()
+  if (m.kind === 'field') {
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(dotSvg(m.color ?? accentColor(), outline))}`,
+      anchor: new google.maps.Point(13, 13),
+      scaledSize: new google.maps.Size(26, 26),
+    }
+  }
+  const fill = m.color ?? (m.kind === 'region' ? regionColor() : accentColor())
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg(fill, outline))}`,
+    anchor: new google.maps.Point(18, 45),
+    scaledSize: new google.maps.Size(36, 46),
+  }
+}
+
 export const createGoogleMap: MapFactory = async (container, options) => {
   if (!optionsSet) {
-    setOptions({ key: config.googleMapsApiKey, v: 'weekly', language: 'uz', region: 'UZ' })
+    setOptions({ key: config.googleMapsApiKey, v: 'weekly', language: getLang(), region: 'UZ' })
     optionsSet = true
   }
   const { Map } = await importLibrary('maps')
   await importLibrary('marker')
   const interactive = options.interactive !== false
-
-  // Terra Draw's Google adapter needs the map element to have an id.
-  if (!container.id) container.id = `gmap-${Math.random().toString(36).slice(2)}`
 
   const map = new Map(container, {
     center: toLL(options.center),
@@ -45,12 +57,11 @@ export const createGoogleMap: MapFactory = async (container, options) => {
   })
 
   let polygons: google.maps.Polygon[] = []
-  let overlays: (google.maps.Marker | google.maps.Circle)[] = []
+  let markers: google.maps.Marker[] = []
   let clickHandler: ((p: LatLon) => void) | null = null
-  let session: PolygonDrawSession | null = null
 
   map.addListener('click', (e: google.maps.MapMouseEvent) => {
-    if (session || !clickHandler || !e.latLng) return
+    if (!interactive || !clickHandler || !e.latLng) return
     clickHandler({ lat: e.latLng.lat(), lon: e.latLng.lng() })
   })
 
@@ -64,12 +75,12 @@ export const createGoogleMap: MapFactory = async (container, options) => {
       if (!points.length) return
       if (points.length === 1) {
         map.setCenter(toLL(points[0]))
-        map.setZoom(Math.min(maxZoom, 16))
+        map.setZoom(maxZoom)
         return
       }
       const b = new google.maps.LatLngBounds()
       points.forEach((p) => b.extend(toLL(p)))
-      map.fitBounds(b, 24)
+      map.fitBounds(b, 36)
       google.maps.event.addListenerOnce(map, 'idle', () => {
         if ((map.getZoom() ?? 0) > maxZoom) map.setZoom(maxZoom)
       })
@@ -77,80 +88,46 @@ export const createGoogleMap: MapFactory = async (container, options) => {
     setPolygons(list) {
       polygons.forEach((p) => p.setMap(null))
       polygons = list
-        .filter((p) => p.points.length >= 2)
+        .filter((p) => p.points.length >= 3)
         .map((p) => {
-          const c = polygonColors(p.variant)
-          return new google.maps.Polygon({
+          const poly = new google.maps.Polygon({
             map,
             paths: p.points.map(toLL),
-            strokeColor: c.stroke,
-            strokeWeight: p.variant === 'other' ? 2 : 3,
-            fillColor: c.fill,
-            fillOpacity: c.fillOpacity,
-            clickable: false,
+            strokeColor: p.color,
+            strokeWeight: 3,
+            fillColor: p.color,
+            fillOpacity: 0.3,
+            clickable: interactive && !!p.onClick,
           })
+          if (p.onClick) poly.addListener('click', () => p.onClick?.())
+          return poly
         })
     },
-    setMarkers(markers) {
-      overlays.forEach((o) => o.setMap(null))
-      overlays = []
-      const accent = hexVar('--map-draw', '#facc15')
-      const pinText = hexVar('--map-pin-text', '#111111')
-      const vertex = hexVar('--map-vertex', '#ffffff')
-      for (const m of markers) {
-        if (m.accuracyM && m.accuracyM > 0) {
-          overlays.push(
-            new google.maps.Circle({ map, center: toLL(m.position), radius: m.accuracyM, strokeColor: accent, strokeWeight: 1, fillOpacity: 0.1, clickable: false }),
-          )
-        }
-        // Classic Marker works without a Map ID (AdvancedMarkerElement requires one).
-        overlays.push(
-          new google.maps.Marker({
-            map,
-            position: toLL(m.position),
-            clickable: false,
-            label: { text: m.label, color: pinText, fontWeight: '700' },
-            icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: accent, fillOpacity: 1, strokeColor: vertex, strokeWeight: 2 },
-          }),
-        )
-      }
+    setMarkers(list) {
+      markers.forEach((m) => m.setMap(null))
+      // Classic Marker works without a Map ID (AdvancedMarkerElement requires one).
+      markers = list.map((m) => {
+        const marker = new google.maps.Marker({
+          map,
+          position: toLL(m.position),
+          clickable: interactive && !!m.onClick,
+          title: m.label,
+          icon: markerIcon(m),
+          zIndex: m.kind === 'field' ? 100 : 10,
+        })
+        if (m.onClick) marker.addListener('click', () => m.onClick?.())
+        return marker
+      })
     },
     onClick(handler) {
       clickHandler = handler
-    },
-    startPolygonDrawing(callbacks, initial) {
-      session?.destroy()
-      const adapter = new TerraDrawGoogleMapsAdapter({ lib: google.maps, map, coordinatePrecision: 9 })
-      const s = createPolygonDrawSession(
-        {
-          adapter,
-          keyTarget: () => container,
-          // The adapter needs the map projection before starting.
-          whenReady: (start) => {
-            if (map.getProjection()) start()
-            else google.maps.event.addListenerOnce(map, 'projection_changed', start)
-          },
-        },
-        callbacks,
-        initial,
-      )
-      const wrapped: PolygonDrawSession = {
-        ...s,
-        destroy() {
-          s.destroy()
-          if (session === wrapped) session = null
-        },
-      }
-      session = wrapped
-      return wrapped
     },
     resize() {
       /* Google Maps observes its container size automatically. */
     },
     destroy() {
-      session?.destroy()
       polygons.forEach((p) => p.setMap(null))
-      overlays.forEach((o) => o.setMap(null))
+      markers.forEach((m) => m.setMap(null))
       google.maps.event.clearInstanceListeners(map)
       container.innerHTML = ''
     },

@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  daysBetween,
-  formatDateOnly,
-  formatDateTime,
-  formatObserved,
-  formatRelative,
-  formatTime,
-  todayTashkent,
-  weekdayShort,
-} from './time'
+import { formatDateTime, formatRelative, formatTime, isValidDateOnly, minutesSince, todayTashkent } from './time'
 
 describe('Asia/Tashkent formatting', () => {
   it('converts UTC to Tashkent (UTC+5)', () => {
@@ -31,39 +22,49 @@ describe('Asia/Tashkent formatting', () => {
   })
 })
 
-describe('relative time (Uzbek)', () => {
+describe('relative time in 3 languages', () => {
   const now = new Date('2026-11-14T12:00:00Z')
-  it('formats past times', () => {
-    expect(formatRelative('2026-11-14T11:59:30Z', now)).toBe('hozirgina')
-    expect(formatRelative('2026-11-14T11:55:00Z', now)).toBe('5 daqiqa oldin')
-    expect(formatRelative('2026-11-14T09:00:00Z', now)).toBe('3 soat oldin')
-    expect(formatRelative('2026-11-12T12:00:00Z', now)).toBe('2 kun oldin')
+
+  it('uz', () => {
+    expect(formatRelative('2026-11-14T11:59:30Z', now, 'uz')).toBe('hozirgina')
+    expect(formatRelative('2026-11-14T11:55:00Z', now, 'uz')).toBe('5 daqiqa oldin')
+    expect(formatRelative('2026-11-14T09:00:00Z', now, 'uz')).toBe('3 soat oldin')
+    expect(formatRelative('2026-11-12T12:00:00Z', now, 'uz')).toBe('2 kun oldin')
+    expect(formatRelative('2026-11-14T14:00:00Z', now, 'uz')).toBe('2 soatdan keyin')
   })
-  it('formats future times', () => {
-    expect(formatRelative('2026-11-14T14:00:00Z', now)).toBe('2 soatdan keyin')
+
+  it('ru (with plural forms)', () => {
+    expect(formatRelative('2026-11-14T11:59:30Z', now, 'ru')).toBe('только что')
+    expect(formatRelative('2026-11-14T11:59:00Z', now, 'ru')).toBe('1 минуту назад')
+    expect(formatRelative('2026-11-14T11:57:00Z', now, 'ru')).toBe('3 минуты назад')
+    expect(formatRelative('2026-11-14T11:55:00Z', now, 'ru')).toBe('5 минут назад')
+    expect(formatRelative('2026-11-13T11:00:00Z', now, 'ru')).toBe('1 день назад')
+    expect(formatRelative('2026-11-14T14:00:00Z', now, 'ru')).toBe('через 2 часа')
   })
-  it('combines relative and absolute time', () => {
-    expect(formatObserved('2026-11-14T09:00:00Z', now)).toBe('3 soat oldin · 14.11.2026 14:00')
-    expect(formatObserved(null, now)).toBe("vaqt noma'lum")
+
+  it('en', () => {
+    expect(formatRelative('2026-11-14T11:59:30Z', now, 'en')).toBe('just now')
+    expect(formatRelative('2026-11-14T11:59:00Z', now, 'en')).toBe('1 minute ago')
+    expect(formatRelative('2026-11-14T11:55:00Z', now, 'en')).toBe('5 minutes ago')
+    expect(formatRelative('2026-10-10T12:00:00Z', now, 'en')).toBe('1 month ago')
   })
-  it('shows daily (date-only) values without a clock time', () => {
-    expect(formatObserved('2026-11-11', now)).toBe('3 kun oldin · 11-noyabr, 2026 (kunlik)')
-    expect(formatObserved('2026-11-14', now)).toBe('bugun · 14-noyabr, 2026 (kunlik)')
-    expect(formatObserved('2026-11-13', now)).toBe('kecha · 13-noyabr, 2026 (kunlik)')
+
+  it('empty input', () => {
+    expect(formatRelative(null, now, 'uz')).toBe('—')
   })
 })
 
-describe('calendar dates', () => {
-  it('formats date-only strings without time-zone shifts', () => {
-    expect(formatDateOnly('2026-11-15')).toBe('15-noyabr')
-    expect(formatDateOnly('2026-01-01', true)).toBe('1-yanvar, 2026')
+describe('dates', () => {
+  it('validates calendar dates', () => {
+    expect(isValidDateOnly('2026-10-12')).toBe(true)
+    expect(isValidDateOnly('2026-02-30')).toBe(false)
+    expect(isValidDateOnly('12.10.2026')).toBe(false)
+    expect(isValidDateOnly('')).toBe(false)
   })
-  it('gives Uzbek weekday', () => {
-    // 2026-11-14 is a Saturday
-    expect(weekdayShort('2026-11-14')).toBe('Sh')
-    expect(weekdayShort('2026-11-16')).toBe('Du')
-  })
-  it('counts days between dates', () => {
-    expect(daysBetween('2026-10-15', '2026-11-14')).toBe(30)
+
+  it('computes minutes since an instant', () => {
+    const now = new Date('2026-11-14T12:00:00Z')
+    expect(minutesSince('2026-11-14T11:30:00Z', now)).toBe(30)
+    expect(minutesSince(null, now)).toBeNull()
   })
 })

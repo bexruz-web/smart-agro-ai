@@ -22,6 +22,8 @@ sources:
 crops:
   wheat_winter:
     name_uz: "Kuzgi bug'doy"
+    name_ru: "Озимая пшеница"
+    name_en: "Winter wheat"
     family: Poaceae
     family_uz: "Boshoqdoshlar"
     default_planting: "10-15"          # oy-kun
@@ -46,6 +48,8 @@ crops:
 
   cotton:
     name_uz: "G'o'za (paxta)"
+    name_ru: "Хлопчатник"
+    name_en: "Cotton"
     family: Malvaceae
     family_uz: "Gulxayridoshlar"
     default_planting: "04-15"
@@ -70,6 +74,8 @@ crops:
 
   maize_grain:
     name_uz: "Makkajo'xori (don)"
+    name_ru: "Кукуруза (на зерно)"
+    name_en: "Maize (grain)"
     family: Poaceae
     family_uz: "Boshoqdoshlar"
     default_planting: "04-25"
@@ -94,6 +100,8 @@ crops:
 
   alfalfa:
     name_uz: "Beda"
+    name_ru: "Люцерна"
+    name_en: "Alfalfa"
     family: Fabaceae
     family_uz: "Dukkakdoshlar"
     default_planting: "04-01"
@@ -119,6 +127,8 @@ crops:
 
   mung_bean:
     name_uz: "Mosh"
+    name_ru: "Маш"
+    name_en: "Mung bean"
     family: Fabaceae
     family_uz: "Dukkakdoshlar"
     default_planting: "06-25"          # O'zbekistonda ko'pincha bug'doydan keyin takroriy ekin
@@ -145,6 +155,8 @@ crops:
 
   potato:
     name_uz: "Kartoshka"
+    name_ru: "Картофель"
+    name_en: "Potato"
     family: Solanaceae
     family_uz: "Ituzumdoshlar"
     default_planting: "03-20"

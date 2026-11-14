@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Device, IngestBatch, SensorReading, WeatherForecast
-from app.domain.qc import PAYLOAD_METRICS, check_reading
+from app.domain.qc import PAYLOAD_METRICS, TELEMETRY_METRICS, check_reading
 
 MAX_FUTURE = timedelta(minutes=10)
 MAX_PAST = timedelta(days=7)  # internet uzilganda buferlangan ma'lumotlar uchun
@@ -74,3 +74,40 @@ async def ingest(session: AsyncSession, device: Device, payload: dict, source: s
     device.battery_v = payload.get("battery_v")
     await session.commit()
     return {"accepted": accepted, "duplicate_batch": False, "flagged": flagged}
+
+
+async def ingest_telemetry(session: AsyncSession, device: Device, payload: dict, source: str = "sensor") -> dict:
+    """Sxema telemetriyasi: bitta vaqt belgisi, bir nechta o'lchov. (device, timestamp) takrorlanmaydi."""
+    now = datetime.now(timezone.utc)
+    ts: datetime = payload["timestamp"]
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if ts > now + MAX_FUTURE or ts < now - MAX_PAST:
+        return {"accepted": 0, "duplicate": False, "flagged": len(payload["measurements"])}
+    try:
+        async with session.begin_nested():
+            session.add(IngestBatch(device_pk=device.id, seq=int(ts.timestamp()), n_readings=len(payload["measurements"])))
+    except IntegrityError:
+        return {"accepted": 0, "duplicate": True, "flagged": 0}
+    model_t = await _model_air_temp(session, device.field_id, ts)
+    accepted = flagged = 0
+    for name, m in payload["measurements"].items():
+        if name not in TELEMETRY_METRICS or m.get("value") is None:
+            continue
+        metric, unit = TELEMETRY_METRICS[name]
+        value = float(m["value"])
+        history = await _history(session, device, metric, ts)
+        qc = check_reading(metric, value, ts, history, model_t if metric == "air_temp" else None)
+        res = await session.execute(insert(SensorReading).values(
+            device_pk=device.id, field_id=device.field_id, ts=ts, metric=metric, value=value, raw_value=None, unit=unit,
+            quality_flag=qc.flag, quality_reason=qc.reason, seq=int(ts.timestamp()), source=source,
+        ).on_conflict_do_nothing(constraint="uq_reading_device_ts_metric"))
+        if res.rowcount:
+            accepted += 1
+            flagged += qc.flag != "ok"
+    status = payload.get("status") or {}
+    csq = status.get("signal_quality")
+    device.last_seen_at = now
+    device.rssi = (-113 + 2 * int(csq)) if isinstance(csq, (int, float)) and 0 <= csq <= 31 else device.rssi
+    await session.commit()
+    return {"accepted": accepted, "duplicate": False, "flagged": flagged}

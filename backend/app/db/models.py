@@ -40,6 +40,8 @@ class Farmer(TimestampMixin, Base):
     language: Mapped[str] = mapped_column(String(8), default="uz")
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Tashkent")
     report_interval_hours: Mapped[int] = mapped_column(Integer, default=4)
+    # daily3 (08:00, 13:00, 19:00) | 2h | 4h | 8h | 10h | weekly | monthly
+    notify_schedule: Mapped[str] = mapped_column(String(16), default="daily3", server_default="daily3")
     quiet_hours_start: Mapped[int | None] = mapped_column(Integer)
     quiet_hours_end: Mapped[int | None] = mapped_column(Integer)
     farm_location = mapped_column(Geometry("POINT", srid=4326), nullable=True)
@@ -66,6 +68,10 @@ class Field(TimestampMixin, Base):
     planting_date: Mapped[date | None] = mapped_column(Date)
     soil_texture: Mapped[str | None] = mapped_column(String(32))
     water_available_m3_ha: Mapped[float | None] = mapped_column(Float)
+    irrigation_type: Mapped[str | None] = mapped_column(String(16))  # drip | furrow | sprinkler | flood | rainfed
+    water_source: Mapped[str | None] = mapped_column(String(16))  # canal | ariq | well | river | reservoir | none
+    # kartochka uchun oxirgi tahlil natijasi: namlik, namlik holati, qurish xavfi, faol datchiklar
+    status: Mapped[dict | None] = mapped_column(JSONB)
     soil_ph: Mapped[float | None] = mapped_column(Float)  # laboratoriya natijasi (fermer kiritadi)
     soil_ec_ds_m: Mapped[float | None] = mapped_column(Float)  # ECe, dS/m (laboratoriya)
     elevation_m: Mapped[float | None] = mapped_column(Float)

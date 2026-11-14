@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Smart Agro AI — virtual IoT sensor simulator.
 
-Real ESP32 qurilmasi bilan bir xil API'dan foydalanadi:
-    POST {api}/iot/readings   Authorization: Bearer <device_token>
+Real qurilma bilan bir xil API'dan foydalanadi. Ikki format:
 
+    --format telemetry (default)  POST {api}/iot/telemetry   — ESP32 + SIM7600G-H sxemasi
+        (sig'imli namlik GPIO34, DS18B20 GPIO4, BME280 + BH1750 I2C, yomg'ir o'lchagich GPIO27)
+    --format readings             POST {api}/iot/readings    — eski Wi-Fi firmware formati
+
+Ikkalasida ham: Authorization: Bearer <device_token>.
 Faqat Python standart kutubxonasi (3.10+), tashqi bog'liqliklar yo'q.
 
 Misollar:
     python3 simulator/sim.py --scenario drought
     python3 simulator/sim.py --device-id esp32-7f3a --token sa_xxx --scenario frost
-    python3 simulator/sim.py --dry-run --count 3 --interval 0
+    python3 simulator/sim.py --dry-run --count 3 --interval 0 --pretty
     python3 simulator/sim.py --scenario normal --backfill-hours 24 --count 0
+    python3 simulator/sim.py --format readings --readings-per-post 4
 """
 from __future__ import annotations
 
@@ -33,9 +38,32 @@ SCENARIOS = ("normal", "drought", "heavy_rain", "frost", "sensor_fault", "offlin
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DEVICES_FILE = SCRIPT_DIR / "devices.json"
 DEFAULT_STATE_FILE = SCRIPT_DIR / ".state.json"
-DEFAULT_API = "http://localhost:8000/api/v1"
+# 8088 — lokal nginx (8000-port bu mashinada boshqa loyihaga tegishli)
+DEFAULT_API = "http://localhost:8088/api/v1"
+FORMATS = ("telemetry", "readings")
+DEFAULT_FORMAT = "telemetry"
 MAX_READINGS_PER_POST = 20          # firmware bilan bir xil
-PENDING_MAX = 5000                  # qayta yuborish navbati limiti
+PENDING_MAX = 5000                  # qayta yuborish navbati limiti (readings)
+
+# ---- telemetry formati (firmware/esp32-sim7600 bilan bir xil)
+TELEMETRY_UNITS = {                 # kontrakt: docs/API_CONTRACT_V2.md "Datchik telemetriyasi"
+    "soil_moisture": "%",           # sig'imli sensor (GPIO34) -> taxminiy VWC %
+    "soil_temperature": "C",        # DS18B20 (GPIO4)
+    "air_temperature": "C",         # BME280
+    "air_humidity": "%",            # BME280
+    "air_pressure": "hPa",          # BME280 (mutlaq / stansiya bosimi)
+    "light_intensity": "lux",       # BH1750
+    "rainfall": "mm",               # cho'michli yomg'ir o'lchagich (GPIO27), yuborish oralig'idagi yig'indi
+}
+TELEMETRY_KEYS = tuple(TELEMETRY_UNITS)
+TELEMETRY_QUEUE_MAX = 96            # firmware QUEUE_MAX_PACKETS bilan bir xil (5 daqiqada ~8 soat)
+CSQ_MAX = 31                        # AT+CSQ: 0..31 (99 = noma'lum — yuborilmaydi)
+RAIN_MM_PER_TIP = 0.2               # 1 ta "tip" = 0.2 mm (o'lchagich pasportiga qarab kalibrlanadi)
+HEAVY_RAIN_MM_H = 30.0              # heavy_rain ssenariysidagi yomg'ir jadalligi (to'liq kuchda)
+DEFAULT_ELEVATION_M = 380.0         # Jizzax atrofi; bosim balandlikka qarab hisoblanadi
+BH1750_MAX_LUX = 121557             # MTreg=31 da BH1750 to'yinish chegarasi (firmware shunday sozlaydi)
+DS18B20_STEP_C = 0.0625             # 12-bit o'lchash qadami
+FAULT_MISSING_METRIC = "soil_temperature"   # sensor_fault: DS18B20 uzilib qoladi
 
 # Firmware'dagi default kalibrlash (config.example.h) — xom ADC qiymatini tiklash uchun
 SOIL_ADC_DRY = 2950
@@ -126,6 +154,7 @@ class FieldModel:
     seed: Optional[int] = None
     lat: float = 40.12
     lon: float = 67.84
+    inject_faults: bool = True                       # sensor_fault: qotish + 85 °C sakrashlar (readings)
     rng: random.Random = field(init=False)
     theta: float = field(init=False)                 # tuproq namligi, VWC %
     soil_t: Optional[float] = field(init=False, default=None)
@@ -232,7 +261,7 @@ class FieldModel:
         vwc = max(0.0, min(SOIL_VWC_MAX, self.theta + rng.gauss(0, 0.2)))
         raw = vwc_to_raw(vwc) + int(rng.gauss(0, 6))
 
-        if self.scenario == "sensor_fault" and self.step >= FAULT_START_STEP:
+        if self.inject_faults and self.scenario == "sensor_fault" and self.step >= FAULT_START_STEP:
             if self.stuck_vwc is None:
                 self.stuck_vwc, self.stuck_raw = round(vwc, 1), raw
             vwc, raw = self.stuck_vwc, self.stuck_raw          # qotib qolgan qiymat
@@ -251,6 +280,137 @@ class FieldModel:
             "rain": rain,
             "light_lux": int(round(lux)),
         }
+
+
+# --------------------------------------------------------------------------- telemetry model
+def sea_level_pressure_normal(t: datetime) -> float:
+    """O'rtacha dengiz sathi bosimi, hPa: qishda Sibir antisikloni (~1024), yozda termik depressiya (~1006)."""
+    doy = t.timetuple().tm_yday
+    c = math.cos(2 * math.pi * (doy - 200) / 365.0)   # +1 iyul, -1 yanvar
+    return 1015.0 - 9.0 * c
+
+
+def station_pressure_hpa(msl_hpa: float, elevation_m: float) -> float:
+    """Barometrik formula (ISA). BME280 mutlaq (stansiya) bosimni o'lchaydi, dengiz sathiga keltirmaydi."""
+    return msl_hpa * (1.0 - 2.25577e-5 * elevation_m) ** 5.25588
+
+
+def csq_from_rssi(rssi_dbm: float) -> int:
+    """3GPP TS 27.007: CSQ = (RSSI + 113) / 2, 0..31."""
+    return int(max(0, min(CSQ_MAX, round((rssi_dbm + 113.0) / 2.0))))
+
+
+@dataclass
+class TelemetryModel:
+    """ESP32 + SIM7600G-H sxemasidagi datchiklar: FieldModel ustiga BME280 bosimi, BH1750 to'yinishi,
+    DS18B20 kvantlash, cho'michli yomg'ir o'lchagich va telemetriya uchun sensor nosozliklari."""
+
+    scenario: str = "normal"
+    seed: Optional[int] = None
+    lat: float = 40.12
+    lon: float = 67.84
+    elevation_m: float = DEFAULT_ELEVATION_M
+    mm_per_tip: float = RAIN_MM_PER_TIP
+    first_interval_s: float = 300.0       # birinchi paket qamraydigan (model) vaqt — yomg'ir yig'indisi uchun
+    base: FieldModel = field(init=False)
+    rng: random.Random = field(init=False)
+    synoptic: float = field(init=False, default=0.0)     # sinoptik bosim og'ishi, hPa
+    bucket_mm: float = field(init=False, default=0.0)    # cho'michda yig'ilgan, hali ag'darilmagan suv
+    total_tips: int = field(init=False, default=0)
+    step: int = field(init=False, default=0)
+    last_model_time: Optional[datetime] = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        if self.mm_per_tip <= 0:
+            raise ValueError("mm_per_tip musbat bo'lishi kerak")
+        self.base = FieldModel(scenario=self.scenario, seed=self.seed, lat=self.lat, lon=self.lon,
+                               inject_faults=False)
+        self.rng = random.Random(None if self.seed is None else self.seed + 104729)
+        self.synoptic = self.rng.uniform(-3.0, 3.0)
+
+    def rain_rate_mm_h(self, s: float) -> float:
+        if self.scenario != "heavy_rain":
+            return 0.0
+        gust = max(0.3, 1.0 + self.rng.gauss(0, 0.3))
+        return HEAVY_RAIN_MM_H * (0.4 + 0.6 * s) * gust
+
+    def pressure_hpa(self, mt: datetime, dt_h: float, s: float) -> float:
+        # Ornstein–Uhlenbeck: tau 48 soat, statsionar sigma ~5 hPa
+        tau, sigma = 48.0, 5.0
+        if dt_h > 0:
+            k = min(1.0, dt_h / tau)
+            self.synoptic += -self.synoptic * k + sigma * math.sqrt(2.0 * k) * self.rng.gauss(0, 1)
+            self.synoptic = max(-12.0, min(12.0, self.synoptic))
+        msl = sea_level_pressure_normal(mt) + self.synoptic
+        if self.scenario == "heavy_rain":
+            msl -= 12.0 * s                     # siklon
+        elif self.scenario == "frost":
+            msl += 10.0 * s                     # antisiklon, ochiq osmon
+        elif self.scenario == "drought":
+            msl -= 4.0 * s                      # termik depressiya
+        msl += 0.8 * math.cos(2 * math.pi * (solar_hour(mt, self.lon) - 10.0) / 12.0)   # yarim sutkalik to'lqin
+        return station_pressure_hpa(msl, self.elevation_m) + self.rng.gauss(0, 0.05)
+
+    def next_values(self, ts: datetime, model_time: Optional[datetime] = None) -> tuple[dict, list[str]]:
+        """({o'lchov_kaliti: qiymat}, sensor_errors). Ishlamayotgan datchik kaliti umuman qaytarilmaydi."""
+        mt = model_time or ts
+        if self.last_model_time is None:
+            dt_h = max(0.0, self.first_interval_s) / 3600.0
+        else:
+            dt_h = max(0.0, (mt - self.last_model_time).total_seconds() / 3600.0)
+        self.last_model_time = mt
+        s = self.base.intensity()
+        r = self.base.next_reading(ts, mt)
+
+        # cho'michli o'lchagich: suv yig'iladi, har mm_per_tip da bitta impuls (qoldiq keyingi oraliqqa o'tadi)
+        self.bucket_mm += self.rain_rate_mm_h(s) * dt_h
+        tips = int((self.bucket_mm + 1e-9) / self.mm_per_tip)
+        self.bucket_mm = max(0.0, self.bucket_mm - tips * self.mm_per_tip)
+        self.total_tips += tips
+
+        soil_t = round(r["soil_temp_c"] / DS18B20_STEP_C) * DS18B20_STEP_C
+        values = {
+            "soil_moisture": r["soil_moisture_vwc"],
+            "soil_temperature": round(soil_t, 2),
+            "air_temperature": round(r["air_temp_c"], 2),
+            "air_humidity": r["air_rh"],
+            "air_pressure": round(self.pressure_hpa(mt, dt_h, s), 1),
+            "light_intensity": int(min(BH1750_MAX_LUX, r["light_lux"])),
+            "rainfall": round(tips * self.mm_per_tip, 3),
+        }
+        errors: list[str] = []
+        if self.scenario == "sensor_fault":
+            if self.step >= FAULT_START_STEP:          # DS18B20 uzildi (-127 °C) -> qiymat yuborilmaydi
+                values.pop(FAULT_MISSING_METRIC)
+                errors.append(FAULT_MISSING_METRIC)
+            if self.step == FAULT_SPIKE_FIRST:         # bitta diapazondan tashqari sakrash
+                values["air_temperature"] = FAULT_SPIKE_VALUE
+        self.step += 1
+        return values, errors
+
+
+def build_telemetry_payload(device_id: str, ts: datetime, values: dict, signal_quality: Optional[int],
+                            sensor_errors: list[str], simulated: bool = True) -> dict:
+    """Kontrakt shakli: {device_id, timestamp, measurements{k: {value, unit}}, status{signal_quality, sensor_errors}}.
+
+    status.simulated=true — backend bu ma'lumotni "simulator" manbasi deb belgilaydi (real qurilma yubormaydi).
+    signal_quality=None (modem CSQ=99, noma'lum) bo'lsa kalit yuborilmaydi."""
+    unknown = (set(values) | set(sensor_errors)) - set(TELEMETRY_KEYS)
+    if unknown:
+        raise ValueError(f"noma'lum o'lchov kaliti: {sorted(unknown)}")
+    measurements = {k: {"value": values[k], "unit": TELEMETRY_UNITS[k]} for k in TELEMETRY_KEYS if k in values}
+    status: dict = {}
+    if signal_quality is not None:
+        status["signal_quality"] = int(signal_quality)
+    status["sensor_errors"] = list(sensor_errors)
+    if simulated:
+        status["simulated"] = True
+    return {
+        "device_id": device_id,
+        "timestamp": iso_utc(ts),
+        "measurements": measurements,
+        "status": status,
+    }
 
 
 # --------------------------------------------------------------------------- payload
@@ -340,22 +500,33 @@ class VirtualDevice:
     def __init__(self, device_id: str, token: str, scenario: str, api: str, state: StateStore,
                  sender: Optional[Sender] = None, dry_run: bool = False, seed: Optional[int] = None,
                  lat: float = 40.12, lon: float = 67.84, offline_batches: int = 4,
-                 online_batches: int = 2, out=None, pretty: bool = False):
+                 online_batches: int = 2, out=None, pretty: bool = False, fmt: str = DEFAULT_FORMAT,
+                 elevation_m: float = DEFAULT_ELEVATION_M, mm_per_tip: float = RAIN_MM_PER_TIP,
+                 interval_s: float = 300.0):
+        if fmt not in FORMATS:
+            raise ValueError(f"noma'lum format: {fmt}")
         self.device_id = device_id
         self.token = token
         self.scenario = scenario
-        self.url = api.rstrip("/") + "/iot/readings"
+        self.fmt = fmt
+        self.url = api.rstrip("/") + ("/iot/telemetry" if fmt == "telemetry" else "/iot/readings")
         self.state = state
         self.sender = sender or (lambda url, tok, p: http_post_json(url, tok, p))
         self.dry_run = dry_run
         self.rng = random.Random(None if seed is None else seed + 7919)
         self.model = FieldModel(scenario=scenario, seed=seed, lat=lat, lon=lon)
+        self.tmodel: Optional[TelemetryModel] = None
+        if fmt == "telemetry":
+            self.tmodel = TelemetryModel(scenario=scenario, seed=seed, lat=lat, lon=lon,
+                                         elevation_m=elevation_m, mm_per_tip=mm_per_tip,
+                                         first_interval_s=interval_s)
         self.offline_batches = max(1, offline_batches)
         self.online_batches = max(1, online_batches)
-        self.pending: list[dict] = []
+        self.pending: list[dict] = []        # readings: o'lchovlar; telemetry: paketlar
         self.cycle = 0
         self.was_offline = False
         self.last_payload: Optional[dict] = None
+        self.last_ts: Optional[datetime] = None
         self.rssi = -68.0
         self.stats = Stats()
         self.out = out or sys.stdout
@@ -369,6 +540,12 @@ class VirtualDevice:
         self.rssi = max(-95.0, min(-45.0, self.rssi + self.rng.gauss(0, 2.0)))
         return int(round(self.rssi))
 
+    def _csq(self, offline: bool = False) -> int:
+        rssi = self._rssi()
+        if offline:                          # qamrov yo'q: signal juda past
+            return self.rng.randint(0, 5)
+        return csq_from_rssi(rssi)
+
     def _battery(self, readings: list[dict]) -> float:
         lux = readings[-1].get("light_lux", 0) if readings else 0
         return 3.72 + 0.35 * min(1.0, lux / 100000.0) + self.rng.gauss(0, 0.01)
@@ -379,7 +556,15 @@ class VirtualDevice:
         period = self.online_batches + self.offline_batches
         return (cycle % period) >= self.online_batches
 
-    # ---- o'lchovlar
+    @staticmethod
+    def _describe(payload: dict) -> tuple[str, int]:
+        """(log uchun yorliq, paketdagi birliklar soni)."""
+        if "readings" in payload:
+            n = len(payload["readings"])
+            return f"seq={payload['seq']} n={n}", n
+        return f"ts={payload['timestamp']} n={len(payload['measurements'])}", 1
+
+    # ---- o'lchovlar (readings)
     def make_readings(self, t_end: datetime, k: int, span_s: float,
                       model_time: Callable[[datetime], datetime] = lambda t: t) -> list[dict]:
         """t_end gacha k ta o'lchov (oraliq span_s/k), vaqt bo'yicha o'sib boruvchi."""
@@ -392,11 +577,25 @@ class VirtualDevice:
             out.append(self.model.next_reading(ts, model_time(ts)))
         return out
 
+    # ---- telemetriya paketi
+    def make_packet(self, t: datetime, model_time: Callable[[datetime], datetime] = lambda t: t,
+                    offline: bool = False) -> dict:
+        """Bitta telemetriya paketi. timestamp har qurilma uchun qat'iy o'sadi (server (device_id, timestamp)
+        bo'yicha dublikatni aniqlaydi, shuning uchun bir soniyada ikki paket bo'lmasligi kerak)."""
+        if self.tmodel is None:
+            raise RuntimeError("make_packet faqat --format telemetry uchun")
+        ts = t.astimezone(timezone.utc).replace(microsecond=0)
+        if self.last_ts is not None and ts <= self.last_ts:
+            ts = self.last_ts + timedelta(seconds=1)
+        self.last_ts = ts
+        values, errors = self.tmodel.next_values(ts, model_time(ts))
+        return build_telemetry_payload(self.device_id, ts, values, self._csq(offline), errors)
+
     # ---- yuborish
     def _post(self, payload: dict) -> str:
         """'ok' | 'retry' | 'drop'. AuthError/ConfigError yuqoriga uzatiladi."""
         self.stats.posts += 1
-        n = len(payload["readings"])
+        label, n = self._describe(payload)
         if self.dry_run:
             text = json.dumps(payload, ensure_ascii=False, allow_nan=False,
                               indent=2 if self.pretty else None)
@@ -407,23 +606,25 @@ class VirtualDevice:
             status, body = self.sender(self.url, self.token, payload)
         except TransportError as e:
             self.stats.errors += 1
-            self.log(f"seq={payload['seq']} n={n} -> server bilan aloqa yo'q ({e}); keyinroq qayta yuboriladi")
+            self.log(f"{label} -> server bilan aloqa yo'q ({e}); keyinroq qayta yuboriladi")
             return "retry"
         shown = json.dumps(body, ensure_ascii=False) if isinstance(body, (dict, list)) else str(body)[:300]
-        self.log(f"seq={payload['seq']} n={n} -> HTTP {status} {shown}")
+        self.log(f"{label} -> HTTP {status} {shown}")
         if 200 <= status < 300:
             self.stats.ok += 1
             if isinstance(body, dict):
                 self.stats.accepted += int(body.get("accepted") or 0)
                 self.stats.flagged += int(body.get("flagged") or 0)
-                if body.get("duplicate_batch"):
+                if body.get("duplicate_batch") or body.get("duplicate") is True:
                     self.stats.duplicates += 1
             return "ok"
         if status in (401, 403):
             raise AuthError(f"HTTP {status}: {shown}")
-        if status == 404:
-            raise ConfigError(f"HTTP 404: {self.url} topilmadi ({shown}).\n"
-                              f"--api qiymatini tekshiring (masalan {DEFAULT_API}).")
+        if status in (404, 405):
+            raise ConfigError(f"HTTP {status}: {self.url} topilmadi ({shown}).\n"
+                              f"--api qiymatini tekshiring (masalan {DEFAULT_API}); "
+                              f"backend {'/iot/telemetry' if self.fmt == 'telemetry' else '/iot/readings'} "
+                              f"endpointini qo'llab-quvvatlashi kerak (yoki --format ni almashtiring).")
         if status in (408, 429) or status >= 500:
             self.stats.errors += 1
             return "retry"
@@ -449,33 +650,92 @@ class VirtualDevice:
                 break
             del self.pending[:len(chunk)]
 
-    def run_cycle(self, readings: list[dict]) -> None:
+    def enqueue_packets(self, packets: list[dict]) -> None:
+        """Cheklangan navbat (firmware kabi): to'lsa eng eski paketlar tashlanadi."""
+        self.pending.extend(packets)
+        if len(self.pending) > TELEMETRY_QUEUE_MAX:
+            drop = len(self.pending) - TELEMETRY_QUEUE_MAX
+            self.log(f"navbat to'ldi ({TELEMETRY_QUEUE_MAX}): eng eski {drop} ta paket tashlandi")
+            self.stats.dropped += drop
+            del self.pending[:drop]
+
+    def send_packets(self, packets: list[dict]) -> None:
+        """Navbatga qo'shadi va eskisidan boshlab bittadan yuboradi; vaqtinchalik xatoda to'xtaydi."""
+        self.enqueue_packets(packets)
+        while self.pending:
+            pkt = self.pending[0]
+            self.last_payload = pkt
+            if self._post(pkt) == "retry":
+                break
+            self.pending.pop(0)
+
+    def _deliver(self, items: list[dict]) -> None:
+        if self.fmt == "telemetry":
+            self.send_packets(items)
+        else:
+            self.send_readings(items)
+
+    def _buffer_offline(self, items: list[dict]) -> None:
+        if self.fmt == "telemetry":
+            self.enqueue_packets(items)
+            what = "paket"
+        else:
+            self.pending.extend(items)
+            what = "o'lchov"
+        self.was_offline = True
+        self.log(f"[offline] aloqa yo'q — {len(items)} ta {what} buferga yozildi "
+                 f"(buferda {len(self.pending)} ta)")
+
+    def run_cycle(self, items: list[dict]) -> None:
+        """Bitta yuborish sikli: readings ro'yxati yoki telemetriya paketlari (format bo'yicha)."""
         cycle = self.cycle
         self.cycle += 1
         if self.is_offline_cycle(cycle):
-            self.pending.extend(readings)
-            self.was_offline = True
-            self.log(f"[offline] aloqa yo'q — {len(readings)} ta o'lchov buferga yozildi "
-                     f"(buferda {len(self.pending)} ta)")
+            self._buffer_offline(items)
             return
         flushing = self.was_offline
         if flushing:
-            self.log(f"[offline] aloqa tiklandi — buferdagi {len(self.pending)} ta o'lchov "
+            what = "paket" if self.fmt == "telemetry" else "o'lchov"
+            self.log(f"[offline] aloqa tiklandi — buferdagi {len(self.pending)} ta {what} "
                      f"asl vaqt belgilari bilan kechikib yuboriladi")
-        self.send_readings(readings)
+        self._deliver(items)
         if flushing and self.last_payload is not None and not self.pending:
             self.was_offline = False
-            self.log(f"[offline] ataylab takroriy paket (seq={self.last_payload['seq']}) — "
-                     f"server duplicate_batch=true qaytarishi kerak")
+            if self.fmt == "telemetry":
+                self.log(f"[offline] ataylab takroriy paket (timestamp={self.last_payload['timestamp']}) — "
+                         f"server duplicate=true qaytarishi kerak")
+            else:
+                self.log(f"[offline] ataylab takroriy paket (seq={self.last_payload['seq']}) — "
+                         f"server duplicate_batch=true qaytarishi kerak")
             self._post(self.last_payload)
+
+    def telemetry_cycle(self, t: datetime,
+                        model_time: Callable[[datetime], datetime] = lambda t: t) -> dict:
+        """Telemetriya: paket yasaydi (offline siklda signal past) va run_cycle orqali yuboradi."""
+        packet = self.make_packet(t, model_time, offline=self.is_offline_cycle(self.cycle))
+        self.run_cycle([packet])
+        return packet
 
     def backfill(self, hours: float, step_min: float, now: datetime, batch: int, pause_s: float) -> None:
         """O'tgan `hours` soat uchun tarixiy ma'lumot (asl vaqt belgilari bilan)."""
         n = int(hours * 60 // step_min)
         start = now - timedelta(minutes=step_min * n)
         times = [start + timedelta(minutes=step_min * i) for i in range(n + 1)]
-        self.log(f"backfill: {len(times)} ta o'lchov, {iso_utc(times[0])} … {iso_utc(times[-1])}, "
+        unit = "paket" if self.fmt == "telemetry" else "o'lchov"
+        self.log(f"backfill: {len(times)} ta {unit}, {iso_utc(times[0])} … {iso_utc(times[-1])}, "
                  f"har {step_min:g} daqiqada")
+        if self.fmt == "telemetry":
+            assert self.tmodel is not None
+            if self.tmodel.last_model_time is None:
+                self.tmodel.first_interval_s = step_min * 60.0
+            for t in times:
+                pkt = self.make_packet(t)
+                self.last_payload = pkt
+                if self._post(pkt) == "retry":
+                    self.enqueue_packets([pkt])
+                if pause_s > 0 and not self.dry_run:
+                    time.sleep(pause_s)
+            return
         readings = [self.model.next_reading(t) for t in times]
         for i in range(0, len(readings), batch):
             chunk = readings[i:i + batch]
@@ -506,11 +766,14 @@ def load_devices(path: Path) -> list[dict]:
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="sim.py",
-        description="Smart Agro AI virtual IoT sensor simulyatori (ESP32 bilan bir xil API).",
+        description="Smart Agro AI virtual IoT sensor simulyatori (ESP32 + SIM7600G-H qurilmasi bilan bir xil API).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--api", default=os.environ.get("SIM_API", DEFAULT_API),
                    help="API bazaviy URL (…/api/v1)")
+    p.add_argument("--format", choices=FORMATS, default=DEFAULT_FORMAT,
+                   help="telemetry = POST {api}/iot/telemetry (ESP32 + SIM7600G-H sxemasi); "
+                        "readings = eski POST {api}/iot/readings")
     p.add_argument("--device-id", help="qurilma ID (Mini App bergan)")
     p.add_argument("--token", default=os.environ.get("SIM_TOKEN"), help="qurilma tokeni (sa_…)")
     p.add_argument("--devices-file", type=Path,
@@ -518,7 +781,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--scenario", choices=SCENARIOS, default="normal")
     p.add_argument("--interval", type=float, default=15.0, help="POST'lar orasidagi real soniya")
     p.add_argument("--count", type=int, default=None, help="jonli POST'lar soni (default: cheksiz; 0 = faqat backfill)")
-    p.add_argument("--readings-per-post", type=int, default=1, help="har POST'dagi o'lchovlar (interval ichida teng taqsimlanadi)")
+    p.add_argument("--readings-per-post", type=int, default=1,
+                   help="faqat --format readings: har POST'dagi o'lchovlar (interval ichida teng taqsimlanadi)")
     p.add_argument("--speed", type=float, default=None,
                    help="vaqtni siqish: 1 real soniyada necha simulyatsiya daqiqasi (model uchun; ts baribir real UTC 'hozir')")
     p.add_argument("--backfill-hours", type=float, default=None,
@@ -528,6 +792,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=None, help="takrorlanuvchi natija uchun random seed")
     p.add_argument("--lat", type=float, default=40.12, help="dala kengligi (quyosh modeli uchun)")
     p.add_argument("--lon", type=float, default=67.84, help="dala uzunligi (quyosh modeli uchun)")
+    p.add_argument("--elevation", type=float, default=DEFAULT_ELEVATION_M,
+                   help="dala balandligi, m (BME280 mutlaq bosimi: 0 m ≈ 1013 hPa, 1000 m ≈ 900 hPa)")
+    p.add_argument("--mm-per-tip", type=float, default=RAIN_MM_PER_TIP,
+                   help="yomg'ir o'lchagichning bitta impulsi necha mm (o'lchagich pasportidan)")
     p.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE, help="seq holati fayli")
     p.add_argument("--dry-run", action="store_true", help="yubormasdan payload'larni chiqarish (seq saqlanmaydi)")
     p.add_argument("--pretty", action="store_true", help="--dry-run payload'larini chiroyli formatlash")
@@ -542,6 +810,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         p.error("--speed musbat bo'lishi kerak")
     if args.backfill_step_min <= 0:
         p.error("--backfill-step-min musbat bo'lishi kerak")
+    if args.format == "telemetry" and args.readings_per_post != 1:
+        p.error("--readings-per-post faqat --format readings bilan ishlaydi "
+                "(telemetriyada har POST = bitta paket)")
+    if not -100.0 <= args.elevation <= 3000.0:
+        p.error("--elevation -100..3000 m oralig'ida bo'lishi kerak")
+    if not 0.0 < args.mm_per_tip <= 5.0:
+        p.error("--mm-per-tip 0..5 mm oralig'ida bo'lishi kerak")
     return args
 
 
@@ -578,8 +853,11 @@ def resolve_devices(args: argparse.Namespace) -> list[dict]:
 def run(args: argparse.Namespace, sender: Optional[Sender] = None, out=None,
         sleep: Callable[[float], None] = time.sleep) -> int:
     out = out or sys.stdout
+    fmt = getattr(args, "format", DEFAULT_FORMAT)
     devices_cfg = resolve_devices(args)
     state = StateStore(args.state_file, persist=not args.dry_run)
+    # birinchi telemetriya paketi qamraydigan model vaqti (yomg'ir yig'indisi uchun)
+    interval_model_s = args.interval * (args.speed * 60.0 if args.speed else 1.0)
     devices = []
     for i, d in enumerate(devices_cfg):
         seed = None if args.seed is None else args.seed + i * 1000
@@ -590,10 +868,12 @@ def run(args: argparse.Namespace, sender: Optional[Sender] = None, out=None,
             d["device_id"], d["token"], scenario, args.api, state, sender=sender,
             dry_run=args.dry_run, seed=seed, lat=float(d.get("lat", args.lat)),
             lon=float(d.get("lon", args.lon)), offline_batches=args.offline_batches,
-            out=out, pretty=args.pretty))
+            out=out, pretty=args.pretty, fmt=fmt,
+            elevation_m=float(d.get("elevation", getattr(args, "elevation", DEFAULT_ELEVATION_M))),
+            mm_per_tip=getattr(args, "mm_per_tip", RAIN_MM_PER_TIP), interval_s=interval_model_s))
 
-    mode = "DRY-RUN (yuborilmaydi)" if args.dry_run else args.api
-    print(f"Smart Agro AI simulyator: {len(devices)} ta qurilma, ssenariy={args.scenario}, "
+    mode = "DRY-RUN (yuborilmaydi)" if args.dry_run else devices[0].url
+    print(f"Smart Agro AI simulyator: {len(devices)} ta qurilma, format={fmt}, ssenariy={args.scenario}, "
           f"interval={args.interval:g}s, count={'∞' if args.count is None else args.count}, "
           f"speed={args.speed if args.speed else 'real vaqt'} -> {mode}", file=out, flush=True)
 
@@ -601,7 +881,7 @@ def run(args: argparse.Namespace, sender: Optional[Sender] = None, out=None,
         now = utc_now()
         for dev in devices:
             dev.backfill(args.backfill_hours, args.backfill_step_min, now,
-                         batch=MAX_READINGS_PER_POST, pause_s=0.2)
+                         batch=MAX_READINGS_PER_POST, pause_s=0.05 if fmt == "telemetry" else 0.2)
 
     start = utc_now()
 
@@ -614,8 +894,11 @@ def run(args: argparse.Namespace, sender: Optional[Sender] = None, out=None,
     while args.count is None or cycle < args.count:
         t_now = utc_now()
         for dev in devices:
-            readings = dev.make_readings(t_now, args.readings_per_post, args.interval, model_time)
-            dev.run_cycle(readings)
+            if fmt == "telemetry":
+                dev.telemetry_cycle(t_now, model_time)
+            else:
+                readings = dev.make_readings(t_now, args.readings_per_post, args.interval, model_time)
+                dev.run_cycle(readings)
         cycle += 1
         if args.count is None or cycle < args.count:
             sleep(args.interval)
@@ -624,12 +907,14 @@ def run(args: argparse.Namespace, sender: Optional[Sender] = None, out=None,
     for dev in devices:
         for k in vars(total):
             setattr(total, k, getattr(total, k) + getattr(dev.stats, k))
+    dup_label = "duplicate" if fmt == "telemetry" else "duplicate_batch"
     print(f"Yakun: POST={total.posts}, OK={total.ok}, accepted={total.accepted}, "
-          f"duplicate_batch={total.duplicates}, flagged={total.flagged}, xatolar={total.errors}",
+          f"{dup_label}={total.duplicates}, flagged={total.flagged}, xatolar={total.errors}",
           file=out, flush=True)
     unsent = sum(len(d.pending) for d in devices)
     if unsent:
-        print(f"OGOHLANTIRISH: {unsent} ta o'lchov yuborilmay qoldi (server bilan aloqa yo'q edi)",
+        what = "paket" if fmt == "telemetry" else "o'lchov"
+        print(f"OGOHLANTIRISH: {unsent} ta {what} yuborilmay qoldi (server bilan aloqa yo'q edi)",
               file=out, flush=True)
     return 0
 

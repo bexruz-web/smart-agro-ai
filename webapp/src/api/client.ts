@@ -2,9 +2,10 @@
  * Minimal fetch-based API client.
  * - Bearer token kept in memory and mirrored to sessionStorage (guarded: storage may throw).
  * - On 401 it calls the registered re-authenticator once and retries the request.
- * - Errors are normalised to ApiError with a human-readable Uzbek message.
+ * - Errors are normalised to ApiError with a human-readable message in the UI language.
  */
 import { config } from '../config'
+import { t } from '../i18n'
 
 const TOKEN_KEY = 'sa_token'
 
@@ -52,6 +53,7 @@ export class ApiError extends Error {
 /** Converts FastAPI error bodies ({"detail": str} or 422 list) into a readable message. */
 export function errorMessage(status: number, body: unknown): string {
   const detail = (body as { detail?: unknown } | null)?.detail
+  // The server's own error text is shown as-is (it is already in the farmer's language).
   if (typeof detail === 'string' && detail) return detail
   if (Array.isArray(detail)) {
     const msgs = detail
@@ -63,13 +65,13 @@ export function errorMessage(status: number, body: unknown): string {
       .filter(Boolean)
     if (msgs.length) return msgs.join('; ')
   }
-  if (status === 0) return "Server bilan aloqa yo'q. Internetni tekshiring"
-  if (status === 401) return 'Avtorizatsiya talab qilinadi'
-  if (status === 403) return "Ruxsat yo'q"
-  if (status === 404) return 'Topilmadi'
-  if (status === 429) return "Juda ko'p so'rov. Birozdan so'ng qayta urinib ko'ring"
-  if (status >= 500) return "Serverda xatolik. Keyinroq qayta urinib ko'ring"
-  return `Xatolik (${status})`
+  if (status === 0) return t('api.network')
+  if (status === 401) return t('api.401')
+  if (status === 403) return t('api.403')
+  if (status === 404) return t('api.404')
+  if (status === 429) return t('api.429')
+  if (status >= 500) return t('api.500')
+  return t('api.generic', { status })
 }
 
 export interface RawResponse<T> {

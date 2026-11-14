@@ -2,7 +2,9 @@
 
 Telegram bot + Mini App: fermer dalasini xaritada belgilaydi → tizim **NASA POWER**, **ob-havo prognozi (Open-Meteo)** va **ESP32 sensorlari** ma'lumotlarini yig'adi → **FAO-56** suv balansi, qoidalar va **Claude AI** orqali tahlil qiladi → fermerga Telegram'da **har 4 soatda hisobot** va **darhol ogohlantirish** yuboradi → fermer javob beradi (feedback) → tizim keyingi mavsum uchun **almashlab ekish** va **hosil prognozini** aniqlashtiradi.
 
-> NASA hackathon MVP. Texnik topshiriq: [`docs/MASTER_PROMPT.md`](docs/MASTER_PROMPT.md). API: [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md).
+> NASA hackathon MVP. Yakuniy konsepsiya: [`SMART_AGRO_AI_TELEGRAM_PROMPT.md`](SMART_AGRO_AI_TELEGRAM_PROMPT.md). API: [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) + [`docs/API_CONTRACT_V2.md`](docs/API_CONTRACT_V2.md).
+
+**Konsepsiya v2 (hozirgi holat):** bot `/start` → til (UZB · RUS · ENG) → «Hududingizni tanlang» → Mini App (Dashboard · Qo'shish · Sozlamalar); har bir dala ichida AI Agronom (dinamik savollar, dala bo'yicha xotira); rejali AI xabarnoma "Kecha / Bugun / Ertaga" — standart kuniga 3 marta (08:00, 13:00, 19:00) yoki sozlamadagi oraliq (2/4/8/10 soat, hafta, oy; faqat 07:00–21:00); tezkor ogohlantirishlar istalgan vaqtda. Datchik: ESP32 + SIM7600G-H sxemasi (`firmware/esp32-sim7600`), hozircha simulyator (`simulator/`) orqali `POST /api/v1/iot/telemetry`.
 
 ---
 
@@ -33,7 +35,8 @@ Telegram bot + Mini App: fermer dalasini xaritada belgilaydi → tizim **NASA PO
 | **Telegram bot tokeni** | Telegram'da [@BotFather](https://t.me/BotFather) → `/newbot` | ✅ ha | `TELEGRAM_BOT_TOKEN` |
 | **Linux VPS** (2 vCPU, 4 GB RAM, Ubuntu 22.04/24.04) | istalgan hosting | ✅ ha (Telegram'da ishlashi uchun) | — |
 | **Domen** (masalan `agro.misol.uz`) VPS IP'siga yo'naltirilgan A-yozuv | domen registratori | ✅ ha (Mini App faqat HTTPS'da ochiladi) | `DOMAIN`, `WEBAPP_URL` |
-| **Anthropic API kaliti** (Claude AI) | [console.anthropic.com](https://console.anthropic.com) → API Keys | ixtiyoriy (bo'lmasa — AI'siz qoidalar rejimi) | `ANTHROPIC_API_KEY` |
+| **Gemini API kaliti** (AI) | [aistudio.google.com](https://aistudio.google.com) → API key | ixtiyoriy (bo'lmasa — AI'siz qoidalar rejimi) | `GEMINI_API_KEY`, `AI_MODEL=gemini-3.5-flash` |
+| yoki **Anthropic API kaliti** (Claude) | [console.anthropic.com](https://console.anthropic.com) → API Keys | ixtiyoriy | `ANTHROPIC_API_KEY`, `AI_MODEL=claude-opus-5-5` |
 | Google Maps API kaliti | Google Cloud Console → Maps JavaScript API (HTTP referrer bilan cheklang!) | ixtiyoriy (default xarita — Leaflet + Esri sun'iy yo'ldosh, kalitsiz) | `VITE_MAP_PROVIDER=google`, `VITE_GOOGLE_MAPS_API_KEY` |
 | NASA POWER, Open-Meteo, EONET | — | kalit kerak emas | — |
 
@@ -54,6 +57,7 @@ docker compose up -d --build db redis api worker beat web
 make seed          # demo fermer, 2 ta dala (Jizzax, Sirdaryo), 2 ta qurilma
 make bootstrap     # NASA POWER iqlim tarixi + prognoz + birinchi tahlil (~15 soniya)
 make smoke         # hammasi "PASS" bo'lishi kerak
+docker compose cp backend/tests/smoke_v2.py api:/tmp/ && docker compose exec -T api python /tmp/smoke_v2.py   # konsepsiya v2
 ```
 
 Brauzerda oching: `http://localhost:8088` → **"Demo rejimida kirish"**.

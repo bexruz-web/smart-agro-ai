@@ -1,31 +1,28 @@
-/**
- * Map colours come from CSS custom properties in styles/theme.css so the whole
- * look stays in one place. Terra Draw requires hex colours, hence the fallback.
- */
-import type { PolygonVariant } from './types'
+/** Map marker artwork shared by the providers. Colours come from CSS tokens (theme.css). */
+import { tokenColor } from '../utils/status'
 
-export function cssVar(name: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
+export const accentColor = () => tokenColor('--map-pin', '#1e6b3a')
+export const regionColor = () => tokenColor('--map-region', '#1f5fa3')
+export const outlineColor = () => tokenColor('--map-vertex', '#ffffff')
+
+/** Escapes text placed into marker HTML / SVG. */
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 }
 
-/** Returns a "#rrggbb" string (Terra Draw only accepts hex). */
-export function hexVar(name: string, fallback: `#${string}`): `#${string}` {
-  const v = cssVar(name, fallback)
-  return /^#[0-9a-fA-F]{3,8}$/.test(v) ? (v as `#${string}`) : fallback
+/** Teardrop pin (36×46, tip at the bottom centre). */
+export function pinSvg(fill: string, stroke: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46">` +
+    `<path d="M18 1C8.6 1 1 8.6 1 18c0 12.4 14.6 25 16.2 26.4a1.2 1.2 0 0 0 1.6 0C20.4 43 35 30.4 35 18 35 8.6 27.4 1 18 1Z" fill="${escapeHtml(fill)}" stroke="${escapeHtml(stroke)}" stroke-width="2"/>` +
+    `<circle cx="18" cy="18" r="6.5" fill="${escapeHtml(stroke)}"/></svg>`
+  )
 }
 
-export function polygonColors(variant: PolygonVariant): { stroke: string; fill: string; fillOpacity: number; dash?: string } {
-  switch (variant) {
-    case 'field':
-      return { stroke: hexVar('--map-field', '#22c55e'), fill: hexVar('--map-field', '#22c55e'), fillOpacity: 0.25 }
-    case 'preview':
-      return { stroke: hexVar('--map-draw', '#facc15'), fill: hexVar('--map-draw', '#facc15'), fillOpacity: 0.25 }
-    case 'invalid':
-      return { stroke: hexVar('--map-invalid', '#ef4444'), fill: hexVar('--map-invalid', '#ef4444'), fillOpacity: 0.2 }
-    case 'other':
-    default:
-      return { stroke: hexVar('--map-other', '#e5e7eb'), fill: hexVar('--map-other', '#e5e7eb'), fillOpacity: 0.08, dash: '6 6' }
-  }
+/** Round dot marker (field), 26×26. */
+export function dotSvg(fill: string, stroke: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">` +
+    `<circle cx="13" cy="13" r="10.5" fill="${escapeHtml(fill)}" stroke="${escapeHtml(stroke)}" stroke-width="3"/></svg>`
+  )
 }

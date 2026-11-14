@@ -1,19 +1,37 @@
 # Smart Agro AI — Telegram Mini App
 
-React 19 + Vite 8 + TypeScript. UI language: Uzbek (Latin). Consumes the backend described in
-[`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md).
+React 19 + Vite 8 + TypeScript. Consumes the backend described in
+[`docs/API_CONTRACT_V2.md`](../docs/API_CONTRACT_V2.md) (auth / `/me` basics: [`docs/API_CONTRACT.md`](../docs/API_CONTRACT.md)).
+
+Screens (final concept, `SMART_AGRO_AI_TELEGRAM_PROMPT.md` §2), bottom navigation **Dashboard · Add (+) · Settings**:
+
+| Route | Screen |
+|---|---|
+| (gate) | First entry: *Choose your region* — tap the map or *Send my location* → `PATCH /me farm_location` |
+| `#/` | Dashboard: satellite map with every field coloured by drying risk + one card per field (`GET /fields`) |
+| `#/fields/new`, `#/fields/:id/edit` | Add / edit field: 8 inputs + Save (`POST` / `PATCH /fields`) |
+| `#/fields/:id` | Field page: map, 4-class soil moisture legend, card metrics, AI Agronomist, Edit, Delete |
+| `#/fields/:id/agronom` | AI Agronomist chat for that field (`GET /fields/:id/agronom`, `POST /chat`) |
+| `#/settings` | Fields, notification frequency (`notify_schedule`), language |
+
+## Languages
+
+English (primary), Uzbek (Latin) and Russian. All UI text lives in `src/i18n/{en,uz,ru}.ts` (`en.ts` is the base:
+its keys type-check the other two) and is read with `t()` / `useI18n()`. The current language is `farmer.language`,
+else the Telegram user's `language_code` (if en / uz / ru), else English; changing it in Settings switches the UI
+immediately and saves it with `PATCH /me {language}`. Localized endpoints get `?lang=`.
 
 ## Development
 
 ```bash
 npm install
 npm run dev          # http://localhost:5173 — proxies /api and /tg to http://localhost:8000
-npm test             # vitest: geometry validation, quad ordering, Asia/Tashkent formatting
+npm test             # vitest: i18n completeness, status colours, form validation, answer rendering, time/number formatting
 npm run typecheck    # tsc --noEmit
 npm run build        # typecheck + production build into dist/
 ```
 
-- Outside Telegram the app shows **"Demo rejimida kirish"** (`POST /auth/demo`, backend needs `DEMO_MODE=true`).
+- Outside Telegram the app shows the demo login button (**"Enter demo mode"** / **"Demo rejimida kirish"**, `POST /auth/demo`, backend needs `DEMO_MODE=true`).
 - Inside Telegram it signs in with `initData` (`POST /auth/telegram`). Telegram only opens Mini Apps over HTTPS,
   so for local testing expose the dev server through a tunnel (`cloudflared tunnel --url http://localhost:5173`
   or `ngrok http 5173`) and set that URL as the bot's Web App URL. The dev server accepts any host for this.
@@ -44,25 +62,16 @@ Multi-stage: `node:22-alpine` builds, `nginx:1.27-alpine` serves `dist/` from `/
 The nginx config (SPA fallback, `/api` proxy, TLS) is mounted by infra. The app uses a `HashRouter`
 and relative asset paths, so it also works without an SPA fallback and from a sub-path.
 
-## Maps (MAP-1, MAP-5)
+## Maps
 
 All map code sits behind `src/map/types.ts` (`MapController`). Screens never import Leaflet or Google directly.
 
-- **Leaflet (default)**: Esri World Imagery satellite tiles + Esri "Boundaries & Places" labels overlay
-  (can be toggled), with Esri attribution. No API key.
-- **Google Maps** (`VITE_MAP_PROVIDER=google` + key): `hybrid` map type, loaded with
-  `@googlemaps/js-api-loader` v2 (`setOptions` / `importLibrary`). If loading fails, the app falls back to Leaflet.
-  The Google provider builds and is wired to the same Terra Draw session, but it has not been tested
-  against a live key.
-- **Drawing**: [Terra Draw](https://github.com/JamesLMilner/terra-draw) (`terra-draw` 1.39, `terra-draw-leaflet-adapter` 1.4,
-  `terra-draw-google-maps-adapter` 1.7). It replaces the Google Maps Drawing Library, which is deprecated and has been removed.
-  Free polygon: tap vertices, tap the first vertex or press **Yakunlash** to close, then drag vertices or midpoints
-  to edit. **Bekor qilish** uses Terra Draw undo (mode level while drawing, session level after closing).
-- **4 burchak**: tap 4 points, type or paste coordinates, or add the current GPS fix as a corner. The fix comes from
-  Telegram `LocationManager` (Bot API 8.0+) or else `navigator.geolocation`, and its accuracy is shown.
-  The points are ordered around their centroid, so they always form a simple quadrilateral.
-- Validation (turf): at least 3 distinct points, no self-intersection, area between 0.05 and 5000 ha.
-  The area shown is a preview only; the server's PostGIS area is authoritative.
+- **Leaflet (default)**: Esri World Imagery satellite tiles + Esri "Boundaries & Places" labels, with Esri attribution. No API key.
+- **Google Maps** (`VITE_MAP_PROVIDER=google` + key): `hybrid` map type, loaded with `@googlemaps/js-api-loader` v2.
+  If loading fails, the app falls back to Leaflet. Not tested against a live key.
+- Fields are drawn from the server's `geometry` (approximate square of `area_ha`) plus a marker at `location`,
+  coloured by drying risk (red high · yellow medium · green low · grey unknown). The add/edit form only needs a
+  tap on the map for the field centre — there is no polygon drawing.
 
 ## Styling
 
@@ -71,17 +80,18 @@ deep green `#1E6B3A` primary, light green tint for selected chips, pill tabs, fl
 All colours, radii, spacing, fonts and shadows are tokens in `src/styles/theme.css`; `src/styles/app.css` uses only those
 tokens. The brand palette wins over Telegram's theme (header/background colours are set to the brand colours via the
 WebApp API); an optional dark variant with the same accents is enabled with `VITE_THEME_MODE=auto`.
-Map and chart colours are tokens too (`--map-*`, `--chart-*`; chart palette checked for colour-blind separation).
+Status colours are tokens too (`--risk-*` for drying risk, `--moist-*` for the soil moisture classes, `--map-*`).
 
 ## Structure
 
 ```
 src/
   api/          client (auth header, 401 → re-auth once), endpoint wrappers, contract types
-  map/          MapController abstraction, Leaflet + Google providers, Terra Draw session, <MapView>
+  i18n/         en (base) / uz / ru dictionaries, t() + useI18n()
+  map/          MapController abstraction, Leaflet + Google providers, <MapView>
   pages/        one file per screen
-  components/   shared UI (metric card, recommendation card, forecast strip, …)
-  utils/        pure helpers (geo, time, format) + vitest tests
+  components/   shared UI (field card + metrics, risk chip, moisture legend, AI answer renderer, …)
+  utils/        pure helpers (status colours, form validation, answer parsing, geo, time, format) + vitest tests
   telegram.ts   typed Telegram WebApp wrapper (safe in a plain browser)
-  auth.tsx      Telegram / demo login
+  auth.tsx      Telegram / demo login (applies farmer.language)
 ```

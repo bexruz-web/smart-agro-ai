@@ -1,0 +1,6 @@
+# Maxfiy konfiguratsiya (qurilma tokeni, APN) — hech qachon commit qilinmaydi
+include/config.h
+# PlatformIO build artefaktlari
+.pio/
+.vscode/
+dist/

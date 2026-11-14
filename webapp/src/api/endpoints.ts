@@ -1,27 +1,16 @@
-/** Typed wrappers for every endpoint in docs/API_CONTRACT.md used by the Mini App. */
-import { api, requestRaw } from './client'
+/** Typed wrappers for the endpoints the Mini App uses (docs/API_CONTRACT_V2.md). */
+import type { Lang } from '../i18n'
+import { api } from './client'
 import type {
+  AgronomInfo,
   AuthResponse,
-  ChatMessage,
   ChatReply,
-  ClimateShift,
-  ClimateShiftResult,
-  Crop,
-  Dashboard,
-  Device,
-  DeviceCreated,
   Farmer,
   FarmerPatch,
-  FeedbackAction,
   Field,
-  FieldEvent,
   FieldInput,
-  HarvestInput,
-  Recommendation,
-  RotationPlan,
-  Season,
-  SoilTexture,
-  Timeseries,
+  Options,
+  RefItem,
 } from './types'
 
 // Auth
@@ -33,9 +22,21 @@ export const authDemo = () => api<AuthResponse>('POST', '/auth/demo', { auth: fa
 export const getMe = () => api<Farmer>('GET', '/me')
 export const patchMe = (patch: FarmerPatch) => api<Farmer>('PATCH', '/me', { body: patch })
 
-// Reference data
-export const getCrops = () => api<Crop[]>('GET', '/crops')
-export const getSoilTextures = () => api<SoilTexture[]>('GET', '/soil-textures')
+// Localized reference data — cached per language for the session (failed requests are not cached).
+const refCache = new Map<string, Promise<unknown>>()
+function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  let p = refCache.get(key) as Promise<T> | undefined
+  if (!p) {
+    p = load()
+    refCache.set(key, p)
+    p.catch(() => refCache.delete(key))
+  }
+  return p
+}
+export const getCrops = (lang: Lang) => cached(`crops:${lang}`, () => api<RefItem[]>('GET', '/crops', { query: { lang } }))
+export const getSoilTextures = (lang: Lang) =>
+  cached(`soil:${lang}`, () => api<RefItem[]>('GET', '/soil-textures', { query: { lang } }))
+export const getOptions = (lang: Lang) => cached(`options:${lang}`, () => api<Options>('GET', '/options', { query: { lang } }))
 
 // Fields
 export const getFields = () => api<Field[]>('GET', '/fields')
@@ -44,52 +45,7 @@ export const createField = (input: FieldInput) => api<Field>('POST', '/fields', 
 export const updateField = (id: number, input: Partial<FieldInput>) => api<Field>('PATCH', `/fields/${id}`, { body: input })
 export const deleteField = (id: number) => api<null>('DELETE', `/fields/${id}`)
 
-// Dashboard & data
-export const getDashboard = (id: number) => api<Dashboard>('GET', `/fields/${id}/dashboard`)
-export const getTimeseries = (id: number, metric: string, from: string, to: string) =>
-  api<Timeseries>('GET', `/fields/${id}/timeseries`, { query: { metric, from, to } })
-
-/** Climate shift may answer 202 {"status":"pending"} while NASA POWER data is being fetched. */
-export async function getClimateShift(id: number): Promise<ClimateShiftResult> {
-  const res = await requestRaw<ClimateShift | { status: string }>('GET', `/fields/${id}/climate-shift`)
-  if (res.status === 202 || (res.data as { status?: string } | null)?.status === 'pending') return { status: 'pending' }
-  return { status: 'ready', data: res.data as ClimateShift }
-}
-
-// Recommendations
-export const getRecommendations = (id: number, status?: string) =>
-  api<Recommendation[]>('GET', `/fields/${id}/recommendations`, { query: { status } })
-export const sendFeedback = (recId: number, action: FeedbackAction, comment: string | null = null) =>
-  api<{ ok: boolean }>('POST', `/recommendations/${recId}/feedback`, { body: { action, comment } })
-
-// Seasons, events, rotation
-export const getSeasons = (id: number) => api<Season[]>('GET', `/fields/${id}/seasons`)
-export const startSeason = (id: number, crop: string, plantingDate: string) =>
-  api<Season>('POST', `/fields/${id}/seasons`, { body: { crop, planting_date: plantingDate } })
-export const recordHarvest = (seasonId: number, input: HarvestInput) =>
-  api<Season>('PATCH', `/seasons/${seasonId}/harvest`, { body: input })
-export const getEvents = (id: number) => api<FieldEvent[]>('GET', `/fields/${id}/events`)
-export const addEvent = (id: number, ev: FieldEvent) => api<FieldEvent>('POST', `/fields/${id}/events`, { body: ev })
-export const getRotationPlan = (id: number) => api<RotationPlan>('GET', `/fields/${id}/rotation-plan`)
-
-// Chat
-export const sendChat = (message: string, fieldId: number | null) =>
+// AI Agronom (per field)
+export const getAgronom = (id: number, lang: Lang) => api<AgronomInfo>('GET', `/fields/${id}/agronom`, { query: { lang } })
+export const sendChat = (message: string, fieldId: number) =>
   api<ChatReply>('POST', '/chat', { body: { message, field_id: fieldId } })
-export const getChatHistory = () => api<ChatMessage[]>('GET', '/chat/history')
-
-// Devices
-export const getDevices = () => api<Device[]>('GET', '/devices')
-export const createDevice = (name: string, fieldId: number) =>
-  api<DeviceCreated>('POST', '/devices', { body: { name, field_id: fieldId } })
-export const deleteDevice = (id: number) => api<null>('DELETE', `/devices/${id}`)
-
-// Demo (DEMO_MODE=true or admin only)
-export type DemoScenario = 'drought' | 'heavy_rain' | 'sensor_fault' | 'normal'
-export interface DemoScenarioResult {
-  scenario: string
-  alerts: string[]
-  sent?: string[]
-  llm_status?: string
-}
-export const runDemoScenario = (scenario: DemoScenario, fieldId: number) =>
-  api<DemoScenarioResult>('POST', `/admin/demo/${scenario}`, { query: { field_id: fieldId } })

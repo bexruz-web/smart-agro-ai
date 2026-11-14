@@ -1,28 +1,50 @@
 import { describe, expect, it } from 'vitest'
-import { fmtNum, fmtSigned, formatMetricParts, formatMetricValue } from './format'
+import { decimalToInput, fmtNum, parseDecimal } from './format'
 
-describe('metric formatting', () => {
-  it('returns null for missing values (UI shows "ma\'lumot yo\'q")', () => {
-    expect(formatMetricParts({ key: 'light', value: null, unit: '' })).toBeNull()
-    expect(formatMetricValue({ key: 'light', value: null, unit: '' })).toBeNull()
+describe('fmtNum follows the UI language', () => {
+  it('uses a decimal comma in uz / ru and a dot in en', () => {
+    expect(fmtNum(76.23, 2, 'uz')).toBe('76,23')
+    expect(fmtNum(76.23, 2, 'ru')).toBe('76,23')
+    expect(fmtNum(76.23, 2, 'en')).toBe('76.23')
   })
 
-  it('splits number and unit', () => {
-    expect(formatMetricParts({ key: 'soil_moisture', value: 9.27, unit: '%' })).toEqual({ main: '9.3', unit: '%' })
-    expect(formatMetricParts({ key: 'nasa_solar', value: 2.15, unit: 'MJ/m²/kun' })).toEqual({ main: '2.2', unit: 'MJ/m²/kun' })
-    expect(formatMetricParts({ key: 'nasa_soil_wetness_top', value: 0.39, unit: '' })).toEqual({ main: '0.39', unit: '' })
+  it('groups thousands and drops trailing zeros', () => {
+    expect(fmtNum(5000, 0, 'uz')).toBe('5 000')
+    expect(fmtNum(5000, 0, 'en')).toBe('5,000')
+    expect(fmtNum(3.1, 2, 'uz')).toBe('3,1')
+    expect(fmtNum(3, 2, 'en')).toBe('3')
+    expect(fmtNum(0.05, 2, 'uz')).toBe('0,05')
   })
 
-  it('renders rain flag (0/1 or boolean) and wind direction in Uzbek', () => {
-    expect(formatMetricParts({ key: 'rain_detected', value: 0, unit: '' })?.main).toBe("Yo'q")
-    expect(formatMetricParts({ key: 'rain_detected', value: true, unit: null })?.main).toBe('Ha')
-    expect(formatMetricParts({ key: 'wind_direction', value: 63, unit: '°' })).toEqual({ main: '63°', unit: 'Shimoli-sharq' })
-  })
-
-  it('formats numbers', () => {
-    expect(fmtNum(8940, 0)).toBe('8 940')
+  it('rounds half away from zero and handles missing values', () => {
+    expect(fmtNum(2.15, 1, 'en')).toBe('2.2')
+    expect(fmtNum(31.6, 0, 'en')).toBe('32')
     expect(fmtNum(null)).toBe('—')
-    expect(fmtSigned(-3.2)).toBe('−3.2')
-    expect(fmtSigned(0.41, 2)).toBe('+0.41')
+    expect(fmtNum(Number.NaN)).toBe('—')
+  })
+})
+
+describe('parseDecimal accepts a decimal comma', () => {
+  it('parses farmer input', () => {
+    expect(parseDecimal('76,23')).toBe(76.23)
+    expect(parseDecimal('76.23')).toBe(76.23)
+    expect(parseDecimal(' 2,5 ')).toBe(2.5)
+    expect(parseDecimal('1 250,5')).toBe(1250.5)
+    expect(parseDecimal('3')).toBe(3)
+    expect(parseDecimal(',5')).toBe(0.5)
+  })
+
+  it('rejects anything else', () => {
+    expect(parseDecimal('')).toBeNull()
+    expect(parseDecimal('abc')).toBeNull()
+    expect(parseDecimal('1,2,3')).toBeNull()
+    expect(parseDecimal('-4')).toBeNull()
+    expect(parseDecimal('5 ga')).toBeNull()
+  })
+
+  it('writes numbers back for the input', () => {
+    expect(decimalToInput(76.23, 'uz')).toBe('76,23')
+    expect(decimalToInput(76.23, 'en')).toBe('76.23')
+    expect(decimalToInput(null, 'uz')).toBe('')
   })
 })

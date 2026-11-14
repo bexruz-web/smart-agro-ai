@@ -54,22 +54,30 @@
   --color-demo-soft: #efe7fb;
   --color-overlay: rgba(20, 35, 25, 0.4);
 
-  /* Map overlays on satellite imagery (hex only — Terra Draw requires hex) */
-  --map-field: #4ade80;
-  --map-draw: #ffd23f;
-  --map-invalid: #ff4d4d;
-  --map-other: #f1f5f0;
-  --map-vertex: #ffffff;
-  --map-pin-text: #111111;
+  /* Field status — drying risk (map markers, card chips): red high · yellow medium · green low · grey unknown */
+  --risk-high: #e5322b;
+  --risk-medium: #f5b70a;
+  --risk-low: #2fa84f;
+  --risk-unknown: #9aa59c;
+  --risk-high-soft: #fde7e4;
+  --risk-high-text: #b42318;
+  --risk-medium-soft: #fff3cc;
+  --risk-medium-text: #845400;
+  --risk-low-soft: #e3f3e7;
+  --risk-low-text: #1f7a3f;
+  --risk-unknown-soft: #eef2ec;
+  --risk-unknown-text: #5f6f63;
 
-  /* Charts — validated (dataviz validator, light, white surface): CVD ΔE ≥ 20, contrast ≥ 3:1 */
-  --chart-1: #2e8b47;
-  --chart-2: #2563a8;
-  --chart-3: #c27100;
-  --chart-4: #8b5cf6;
-  --chart-bad: #c62f25;
-  --chart-grid: #e6ece3;
-  --chart-axis: #6b7a6e;
+  /* Soil moisture classes (legend): red very dry · yellow dry · green normal · blue too wet */
+  --moist-very-dry: #e5322b;
+  --moist-dry: #f5b70a;
+  --moist-normal: #2fa84f;
+  --moist-wet: #2f7fd8;
+
+  /* Map overlays on satellite imagery */
+  --map-pin: #1e6b3a; /* dropped field-location pin */
+  --map-region: #1f5fa3; /* farmer's region pin */
+  --map-vertex: #ffffff; /* marker outline */
 }
 
 /* ---------- Optional dark variant (same green accents) ---------- */
@@ -111,14 +119,14 @@
   --color-demo-soft: #2e2340;
   --color-overlay: rgba(0, 0, 0, 0.6);
 
-  /* Validated for dark surface #1d2520 */
-  --chart-1: #3ea85f;
-  --chart-2: #4a8bd4;
-  --chart-3: #c08118;
-  --chart-4: #9373e6;
-  --chart-bad: #ff7a6e;
-  --chart-grid: #2b352f;
-  --chart-axis: #8d998b;
+  --risk-high-soft: #41201c;
+  --risk-high-text: #ff8a7e;
+  --risk-medium-soft: #3a2d12;
+  --risk-medium-text: #f2c14e;
+  --risk-low-soft: #1b3324;
+  --risk-low-text: #6fd58d;
+  --risk-unknown-soft: #222e25;
+  --risk-unknown-text: #9aab9d;
 }
 
 /* ---------- Typography, spacing, shape ---------- */
@@ -154,11 +162,12 @@
   --border-card: 1px solid var(--color-border);
   --shadow-card: 0 1px 2px rgba(23, 50, 30, 0.04);
   --shadow-float: 0 6px 20px rgba(23, 50, 30, 0.18);
+  --map-marker-shadow: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
 
   --touch-target: 48px;
   --nav-height: 64px;
   --nav-offset: 12px; /* floating bottom bar distance from the edges */
-  --map-height: 52vh;
-  --map-height-small: 200px;
+  --map-height: 40vh; /* dashboard */
+  --map-height-small: 220px; /* field page, form */
   --content-max-width: 720px;
 }

@@ -60,7 +60,7 @@ def test_polygon_validation():
     square = {"type": "Polygon", "coordinates": [[[67.0, 40.0], [67.001, 40.0], [67.001, 40.001], [67.0, 40.001], [67.0, 40.0]]]}
     assert validate_polygon_geojson(square).is_valid
     bowtie = {"type": "Polygon", "coordinates": [[[0, 0], [1, 1], [1, 0], [0, 1], [0, 0]]]}
-    with pytest.raises(GeometryError, match="kesib"):
+    with pytest.raises(GeometryError, match="intersects itself"):
         validate_polygon_geojson(bowtie)
     with pytest.raises(GeometryError):
         validate_polygon_geojson({"type": "Polygon", "coordinates": [[[0, 0], [0, 0], [1, 1]]]})
@@ -186,3 +186,47 @@ def test_init_data_valid_forged_expired():
         validate_init_data(_signed(token, user, int(time.time()) - 7200), token, 3600)
     with pytest.raises(InitDataError):
         validate_init_data(good, "999:other", 3600)
+
+
+# ---------------- Konsepsiya v2: jadval, namlik holati, qurish xavfi, i18n
+from zoneinfo import ZoneInfo  # noqa: E402
+
+from app.core import i18n  # noqa: E402
+from app.domain.field_status import drying_risk, moisture_class  # noqa: E402
+from app.domain.schedule import is_due, last_slot  # noqa: E402
+
+TZ = ZoneInfo("Asia/Tashkent")
+
+
+def test_schedule_daily3_and_intervals():
+    now = datetime(2026, 11, 15, 14, 5, tzinfo=TZ)
+    assert last_slot("daily3", now).hour == 13
+    assert last_slot("daily3", datetime(2026, 11, 15, 7, 0, tzinfo=TZ)).hour == 19  # kechagi 19:00
+    assert last_slot("4h", now).hour == 12  # 08, 12, 16, 20
+    assert last_slot("10h", datetime(2026, 11, 15, 23, 0, tzinfo=TZ)).hour == 18  # 08, 18 (21:00 dan keyin yo'q)
+    assert last_slot("weekly", now).weekday() == 0 and last_slot("weekly", now).hour == 8
+    assert last_slot("monthly", now).day == 1
+    assert is_due("daily3", now, datetime(2026, 11, 15, 8, 0, tzinfo=TZ))
+    assert not is_due("daily3", now, datetime(2026, 11, 15, 13, 1, tzinfo=TZ))
+    assert not is_due("daily3", datetime(2026, 11, 15, 3, 0, tzinfo=TZ), None)  # yangi dala: tunda eski slot yo'q
+
+
+def test_moisture_class_and_risk():
+    assert moisture_class(80, 100, None, 0.25) == "very_dry"
+    assert moisture_class(50, 100, None, 0.25) == "dry"
+    assert moisture_class(10, 100, None, 0.25) == "normal"
+    assert moisture_class(0, 100, 30.0, 0.25) == "wet"
+    assert drying_risk("very_dry", 80, 20) == "high"
+    assert drying_risk("dry", 10, 36) == "high"
+    assert drying_risk("dry", 80, 20) == "medium"
+    assert drying_risk("normal", 10, 36) == "medium"
+    assert drying_risk("normal", 10, 25) == "low"
+
+
+def test_i18n_complete():
+    for table in (i18n.T, i18n.IRRIGATION_TYPES, i18n.WATER_SOURCES, i18n.MOISTURE_CLASS, i18n.RISK, i18n.QUESTIONS):
+        for key, val in table.items():
+            assert set(val) >= set(i18n.LANGS), key
+    for key, spec in i18n.ALERTS.items():
+        assert set(spec["title"]) >= set(i18n.LANGS) and set(spec["action"]) >= set(i18n.LANGS), key
+    assert i18n.REFUSAL["uz"].startswith("Men Smart Agro AI agronomik yordamchisiman.")

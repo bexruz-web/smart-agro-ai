@@ -31,6 +31,9 @@ class MockProvider:
     async def explain(self, context: dict, drafts: list[dict]) -> ExplainResult | None:
         return None  # AI izohi yo'q — deterministik tavsiyalar ishlatiladi
 
+    async def advice(self, facts: dict, lang_name: str) -> list[str] | None:
+        return None  # deterministik matn ishlatiladi
+
     async def chat(self, system: str, history: list[dict], message: str, tools: list[dict],
                    execute: ToolExecutor) -> ChatResult:
         hint = re.search(r"\(Fermer tanlagan dala ID: (\d+)\)", message)

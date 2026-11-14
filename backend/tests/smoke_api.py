@@ -78,7 +78,7 @@ check("feedback", fb.status_code == 200)
 
 # AI agronom: mavzudan tashqari savol -> rasmiy rad matni
 off = c.post("/chat", json={"message": "Futbol bo'yicha kim chempion bo'ladi?", "field_id": fid}, headers=h).json()
-check("chat off-topic refusal", off["refused"] and off["reply"].startswith("Men Smart Agro AI agronomik yordamchisiman."), off["reply"][:80])
+check("chat off-topic refusal", off["refused"] and off["reply"].startswith(("I am the Smart Agro AI agronomy assistant.", "Men Smart Agro AI agronomik yordamchisiman.", "Я агрономический помощник")), off["reply"][:80])
 on = c.post("/chat", json={"message": "Dalamni qachon sug'orishim kerak?", "field_id": fid}, headers=h).json()
 check("chat on-topic", not on["refused"] and len(on["reply"]) > 20, on["reply"][:160].replace("\n", " "))
 

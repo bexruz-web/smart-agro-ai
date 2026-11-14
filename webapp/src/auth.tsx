@@ -1,5 +1,5 @@
 /**
- * Authentication:
+ * Authentication (UI language follows farmer.language as soon as the farmer is known):
  *  - inside Telegram (initData present) → POST /auth/telegram (server verifies the signature);
  *  - plain browser → "Demo rejimida kirish" button → POST /auth/demo (if VITE_ALLOW_DEMO !== "false").
  * On a 401 the API client re-authenticates once with the same method.
@@ -9,6 +9,7 @@ import { ApiError, getToken, setReauthenticator, setToken } from './api/client'
 import { authDemo, authTelegram, getMe } from './api/endpoints'
 import type { AuthResponse, Farmer } from './api/types'
 import { config } from './config'
+import { setLang, t, toLang } from './i18n'
 import { getInitData, isInTelegram } from './telegram'
 
 type Status = 'loading' | 'need-login' | 'ready'
@@ -60,9 +61,19 @@ async function loginWith(mode: Mode): Promise<AuthResponse> {
   return res
 }
 
+/** Switches the UI to the farmer's saved language (if the server sent a supported one). */
+function applyLanguage(f: Farmer) {
+  const lang = toLang(f.language)
+  if (lang) setLang(lang)
+}
+
 export function AuthProvider({ children, loginScreen }: { children: ReactNode; loginScreen: (p: LoginScreenProps) => ReactNode }) {
   const [status, setStatus] = useState<Status>('loading')
-  const [farmer, setFarmer] = useState<Farmer | null>(null)
+  const [farmer, setFarmerState] = useState<Farmer | null>(null)
+  const setFarmer = useCallback((f: Farmer) => {
+    applyLanguage(f)
+    setFarmerState(f)
+  }, [])
   const [mode, setMode] = useState<Mode>(isInTelegram() ? 'telegram' : 'demo')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -76,13 +87,13 @@ export function AuthProvider({ children, loginScreen }: { children: ReactNode; l
       setFarmer(res.farmer)
       setStatus('ready')
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'Kirishda xatolik'
-      setError(m === 'demo' && e instanceof ApiError && (e.status === 403 || e.status === 404) ? "Demo rejim serverda o'chirilgan" : msg)
+      const msg = e instanceof ApiError ? e.message : t('login.error')
+      setError(m === 'demo' && e instanceof ApiError && (e.status === 403 || e.status === 404) ? t('login.demoDisabled') : msg)
       setStatus('need-login')
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [setFarmer])
 
   useEffect(() => {
     let alive = true
@@ -119,18 +130,18 @@ export function AuthProvider({ children, loginScreen }: { children: ReactNode; l
     return () => {
       alive = false
     }
-  }, [login])
+  }, [login, setFarmer])
 
   const refreshFarmer = useCallback(async () => {
     setFarmer(await getMe())
-  }, [])
+  }, [setFarmer])
 
   if (status === 'loading') {
     return (
       <div className="splash">
         <div className="splash__logo">🌱</div>
-        <div className="splash__title">Smart Agro AI</div>
-        <div className="spinner" aria-label="Yuklanmoqda" />
+        <div className="splash__title">{t('app.name')}</div>
+        <div className="spinner" aria-label={t('common.loading')} />
       </div>
     )
   }

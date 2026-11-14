@@ -15,6 +15,8 @@ class FarmerOut(BaseModel):
     telegram_id: int
     first_name: str | None
     username: str | None
+    language: str = "uz"
+    notify_schedule: str = "daily3"
     report_interval_hours: int
     quiet_hours_start: int | None
     quiet_hours_end: int | None
@@ -40,6 +42,8 @@ class MePatch(BaseModel):
     farm_location: LatLon | None = None
     consent: bool | None = None
     clear_quiet_hours: bool | None = None
+    language: Literal["uz", "ru", "en"] | None = None
+    notify_schedule: Literal["daily3", "2h", "4h", "8h", "10h", "weekly", "monthly"] | None = None
 
 
 class GeoJSONPolygon(BaseModel):
@@ -47,10 +51,19 @@ class GeoJSONPolygon(BaseModel):
     coordinates: list[list[list[float]]]
 
 
+IrrigationType = Literal["drip", "furrow", "sprinkler", "flood", "rainfed"]
+WaterSource = Literal["canal", "ariq", "well", "river", "reservoir", "none"]
+
+
 class FieldIn(BaseModel):
+    """v2: area_ha + location (konsepsiya formasi) yoki v1: geometry (polygon)."""
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=128)
-    geometry: GeoJSONPolygon
+    geometry: GeoJSONPolygon | None = None
+    location: LatLon | None = None
+    area_ha: float | None = Field(default=None, ge=0.05, le=5000)
+    irrigation_type: IrrigationType | None = None
+    water_source: WaterSource | None = None
     drawing_method: Literal["quad", "polygon"] = "polygon"
     crop: str | None = None
     planting_date: date | None = None
@@ -71,6 +84,10 @@ class FieldPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, min_length=1, max_length=128)
     geometry: GeoJSONPolygon | None = None
+    location: LatLon | None = None
+    area_ha: float | None = Field(default=None, ge=0.05, le=5000)
+    irrigation_type: IrrigationType | None = None
+    water_source: WaterSource | None = None
     drawing_method: Literal["quad", "polygon"] | None = None
     crop: str | None = None
     planting_date: date | None = None
@@ -156,3 +173,18 @@ class IotPayload(BaseModel):
     rssi: int | None = None
     battery_v: float | None = None
     readings: list[Reading] = Field(min_length=1, max_length=200)
+
+
+class TelemetryValue(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    value: float
+    unit: str | None = None
+
+
+class TelemetryIn(BaseModel):
+    """Sxema (ESP32 + SIM7600G-H) telemetriyasi — docs/API_CONTRACT_V2.md."""
+    model_config = ConfigDict(extra="ignore")
+    device_id: str = Field(max_length=64)
+    timestamp: datetime
+    measurements: dict[str, TelemetryValue]
+    status: dict | None = None

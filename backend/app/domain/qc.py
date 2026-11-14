@@ -12,6 +12,17 @@ PAYLOAD_METRICS = {
     "rain": ("rain", "bool"),
 }
 
+# Sxema (ESP32 + SIM7600G-H) telemetriya nomlari -> (ichki metrika, birlik)
+TELEMETRY_METRICS = {
+    "soil_moisture": ("soil_moisture", "%"),
+    "soil_temperature": ("soil_temp", "°C"),
+    "air_temperature": ("air_temp", "°C"),
+    "air_humidity": ("air_humidity", "%"),
+    "air_pressure": ("air_pressure", "hPa"),
+    "light_intensity": ("light", "lx"),
+    "rainfall": ("rainfall", "mm"),
+}
+
 METRIC_LABEL_UZ = {
     "soil_moisture": "Tuproq namligi",
     "soil_temp": "Tuproq harorati",
@@ -19,6 +30,8 @@ METRIC_LABEL_UZ = {
     "air_humidity": "Havo namligi",
     "light": "Yorug'lik",
     "rain": "Yomg'ir sensori",
+    "air_pressure": "Atmosfera bosimi",
+    "rainfall": "Yog'in (yomg'ir o'lchagich)",
 }
 
 # Fizik jihatdan mumkin bo'lgan diapazonlar
@@ -29,6 +42,8 @@ PHYSICAL_RANGE = {
     "air_humidity": (0.0, 100.0),
     "light": (0.0, 150000.0),
     "rain": (0.0, 1.0),
+    "air_pressure": (300.0, 1100.0),
+    "rainfall": (0.0, 200.0),
 }
 
 # 15 daqiqa ichida ruxsat etilgan maksimal o'zgarish (undan katta — "sakrash").

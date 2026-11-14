@@ -31,6 +31,10 @@ async def upsert_farmer(user) -> dict:
                                                    "username": user.username, "language_code": user.language_code})
 
 
+async def set_language(telegram_id: int, language: str) -> dict:
+    return await _call("POST", "/farmers/language", {"telegram_id": telegram_id, "language": language})
+
+
 async def set_location(telegram_id: int, lat: float, lon: float) -> dict:
     return await _call("POST", "/farmers/location", {"telegram_id": telegram_id, "lat": lat, "lon": lon})
 
