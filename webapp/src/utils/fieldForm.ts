@@ -3,7 +3,7 @@ import type { Field, FieldInput } from '../api/types'
 import { AREA_MAX_HA, AREA_MIN_HA, NAME_MAX_LENGTH } from '../config'
 import { getLang, type Lang, type TFunction } from '../i18n'
 import { decimalToInput, fmtNum, parseDecimal } from './format'
-import { isValidLatLon, type LatLon } from './geo'
+import { isValidLatLon, polygonCentroid, toGeoJsonPolygon, usablePolygon, type LatLon } from './geo'
 import { isValidDateOnly, todayTashkent } from './time'
 
 export interface FieldFormValues {
@@ -15,6 +15,8 @@ export interface FieldFormValues {
   irrigation: string | null
   water: string | null
   location: LatLon | null
+  /** Drawn boundary (3+ vertices). If set, it is sent as the GeoJSON geometry; without a pin its centroid is the location. */
+  polygon: LatLon[] | null
 }
 
 export type FieldFormKey = keyof FieldFormValues
@@ -32,6 +34,7 @@ export const EMPTY_FORM: FieldFormValues = {
   irrigation: null,
   water: null,
   location: null,
+  polygon: null,
 }
 
 export function formFromField(f: Field, lang: Lang = getLang()): FieldFormValues {
@@ -44,6 +47,7 @@ export function formFromField(f: Field, lang: Lang = getLang()): FieldFormValues
     irrigation: f.irrigation_type ?? null,
     water: f.water_source ?? null,
     location: isValidLatLon(f.location) ? f.location : null,
+    polygon: null,
   }
 }
 
@@ -73,9 +77,13 @@ export function validateFieldForm(
   if (!v.soil) errors.soil = t('err.soilRequired')
   if (!v.irrigation) errors.irrigation = t('err.irrigationRequired')
   if (!v.water) errors.water = t('err.waterRequired')
-  if (!isValidLatLon(v.location)) errors.location = t('err.locationRequired')
+  const polygon = usablePolygon(v.polygon)
+  if (!isValidLatLon(v.location) && !polygon) errors.location = t('err.locationRequired')
 
   if (Object.keys(errors).length) return { errors, input: null }
+
+  // No pin (boundary drawn instead): the field is placed at the polygon's centroid.
+  const loc = isValidLatLon(v.location) ? v.location : polygonCentroid(polygon!)
   return {
     errors,
     input: {
@@ -86,7 +94,8 @@ export function validateFieldForm(
       soil_texture: v.soil!,
       irrigation_type: v.irrigation!,
       water_source: v.water!,
-      location: { lat: round6(v.location!.lat), lon: round6(v.location!.lon) },
+      location: { lat: round6(loc.lat), lon: round6(loc.lon) },
+      ...(polygon ? { geometry: toGeoJsonPolygon(polygon) } : {}),
     },
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { HashRouter, Link, Route, Routes, useLocation } from 'react-router'
+import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router'
 import { AuthProvider, useAuth, type LoginScreenProps } from './auth'
 import { config } from './config'
 import { useI18n } from './i18n'
@@ -121,10 +121,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <HashRouter>
+    <BrowserRouter>
       <AuthProvider loginScreen={(p) => <LoginScreen {...p} />}>
         <Shell />
       </AuthProvider>
-    </HashRouter>
+    </BrowserRouter>
   )
 }

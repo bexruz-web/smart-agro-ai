@@ -29,7 +29,7 @@ def open_field_keyboard(field_id: int | None, lang: str) -> dict | None:
     base = webapp_url()
     if not base:
         return None
-    url = base + (f"#/fields/{field_id}" if field_id else "")
+    url = base.rstrip("/") + f"/fields/{field_id}" if field_id else base  # Mini App: BrowserRouter (yo'l, hash emas)
     return {"inline_keyboard": [[{"text": t("open_field", lang), "web_app": {"url": url}}]]}
 
 

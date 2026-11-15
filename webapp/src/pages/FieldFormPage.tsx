@@ -4,18 +4,17 @@
  * · 7 water source (chips) · 8 location (tap the map) · Saqlash (Telegram MainButton + on-page).
  * POST /fields or PATCH /fields/{id}.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { createField, getCrops, getField, getOptions, getSoilTextures, updateField } from '../api/endpoints'
 import type { Field, RefItem } from '../api/types'
 import { useAuth } from '../auth'
+import { PolygonPicker } from '../components/PolygonPicker'
 import { ChipGroup, ErrorBox, Loading, Page } from '../components/ui'
-import { DEFAULT_CENTER, DEFAULT_ZOOM, FIELD_ZOOM, REGION_ZOOM } from '../config'
+import { DEFAULT_CENTER, DEFAULT_ZOOM, REGION_ZOOM } from '../config'
 import { useAsync } from '../hooks/useAsync'
 import { useMainButton } from '../hooks/useTelegramButtons'
 import { useI18n } from '../i18n'
-import { MapView } from '../map/MapView'
-import type { MapController } from '../map/types'
 import { haptic } from '../telegram'
 import {
   EMPTY_FORM,
@@ -26,7 +25,6 @@ import {
   type FieldFormKey,
   type FieldFormValues,
 } from '../utils/fieldForm'
-import { formatLatLon, type LatLon } from '../utils/geo'
 import { todayTashkent } from '../utils/time'
 
 /** Show a search box above the crop chips only when the list is long. */
@@ -63,23 +61,6 @@ function RefChips({ items, value, onChange, label, loading }: { items: RefItem[]
   return <ChipGroup items={items} value={value} onChange={onChange} label={label} />
 }
 
-function LocationPicker({ value, onChange, fallbackCenter }: { value: LatLon | null; onChange: (p: LatLon) => void; fallbackCenter: { center: LatLon; zoom: number } }) {
-  const [map, setMap] = useState<MapController | null>(null)
-  const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
-  const initial = useRef(value ? { center: value, zoom: FIELD_ZOOM } : fallbackCenter)
-
-  const onReady = useCallback((m: MapController) => {
-    m.onClick((p) => onChangeRef.current(p))
-    setMap(m)
-  }, [])
-
-  useEffect(() => {
-    map?.setMarkers(value ? [{ id: 'pin', position: value, kind: 'pin' }] : [])
-  }, [map, value])
-
-  return <MapView className="map--picker" options={initial.current} onReady={onReady} />
-}
 
 function FieldForm({ field }: { field: Field | null }) {
   const { t, lang } = useI18n()
@@ -226,10 +207,14 @@ function FieldForm({ field }: { field: Field | null }) {
         id="step-location"
         label={t('form.location')}
         error={errors.location}
-        hint={values.location ? `📍 ${t('form.locationSet', { coords: formatLatLon(values.location, 5) })}` : undefined}
       >
-        {!values.location && <div className="step__hint step__hint--top">{t('form.locationHint')}</div>}
-        <LocationPicker value={values.location} onChange={(p) => set('location', p)} fallbackCenter={fallbackCenter} />
+        <PolygonPicker
+          pin={values.location}
+          polygon={values.polygon}
+          onPin={(p) => set('location', p)}
+          onPolygon={(pts) => set('polygon', pts)}
+          fallbackCenter={fallbackCenter}
+        />
       </Step>
 
       {hasErrors && submitted && <div className="form__summary">{t('form.fixErrors')}</div>}

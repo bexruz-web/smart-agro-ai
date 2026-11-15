@@ -238,9 +238,18 @@ export function hasNativeBackButton(): boolean {
 
 // ---------------------------------------------------------------- Haptics
 
-export function haptic(type: 'success' | 'error' | 'warning'): void {
+export function haptic(
+  type: 'success' | 'error' | 'warning' | 'light' | 'medium' | 'heavy' | 'rigid' | 'soft',
+): void {
   try {
-    if (atLeast('6.1')) webApp()?.HapticFeedback?.notificationOccurred(type)
+    if (!atLeast('6.1')) return
+    const hf = webApp()?.HapticFeedback
+    if (!hf) return
+    if (type === 'success' || type === 'error' || type === 'warning') {
+      hf.notificationOccurred(type)
+    } else {
+      hf.impactOccurred(type)
+    }
   } catch {
     /* ignore */
   }

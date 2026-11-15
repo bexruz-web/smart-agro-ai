@@ -21,6 +21,7 @@ def check(name: str, cond: bool, extra: str = "") -> None:
 
 
 c = httpx.Client(base_url=BASE, timeout=180)
+c.cookies.set("demo_sid", "shared")  # umumiy (seed qilingan) demo fermer
 r = c.post("/auth/demo")
 check("auth/demo", r.status_code == 200, str(r.status_code))
 token = r.json()["access_token"]

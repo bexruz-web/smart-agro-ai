@@ -1,7 +1,8 @@
 """Mini App uchun fermer API'si (docs/API_CONTRACT.md)."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
@@ -59,12 +60,29 @@ async def auth_telegram(body: AuthTelegramIn, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/auth/demo", response_model=AuthOut)
-async def auth_demo(db: AsyncSession = Depends(get_db)):
+async def auth_demo(request: Request, db: AsyncSession = Depends(get_db)):
     if not get_settings().demo_mode:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo mode is disabled")
-    farmer = await db.scalar(select(Farmer).where(Farmer.is_demo.is_(True)).order_by(Farmer.id))
+    import secrets as _sec
+    import hashlib as _hl
+    session_id = request.cookies.get("demo_sid")
+    farmer = None
+    if session_id:
+        farmer = await db.scalar(select(Farmer).where(Farmer.username == f"demo_{session_id}", Farmer.is_demo.is_(True)))
     if farmer is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Demo farmer has not been created (run make seed)")
+        sid = _sec.token_hex(8)
+        # Deterministik, to'qnashuvsiz manfiy telegram_id: sha256 dan olinadi
+        tg_id = -(int(_hl.sha256(sid.encode()).hexdigest(), 16) % (10 ** 12) + 1)
+        farmer = Farmer(telegram_id=tg_id, is_demo=True,
+                        username=f"demo_{sid}", first_name="Demo",
+                        report_interval_hours=get_settings().report_interval_hours,
+                        language="en", notify_schedule="daily3")
+        db.add(farmer)
+        await db.commit()
+        await db.refresh(farmer)
+        resp = JSONResponse(jsonable_encoder({"access_token": create_access_token(farmer.id), "farmer": farmer_svc.farmer_out(farmer)}))
+        resp.set_cookie("demo_sid", sid, max_age=30 * 24 * 3600, httponly=True, samesite="lax", secure=False)
+        return resp
     return {"access_token": create_access_token(farmer.id), "farmer": farmer_svc.farmer_out(farmer)}
 
 
@@ -201,7 +219,12 @@ async def patch_field(field_id: int, body: FieldPatch, farmer: Farmer = Depends(
     _check_refs(data)
     warnings: list[str] = []
     loc, area = data.pop("location", None), data.pop("area_ha", None)
-    if not data.get("geometry") and (loc or area):
+    # chizilgan polygon saqlanadi; kvadrat faqat pin bilan yaratilgan dala uchun yoki pin ko'chirilganda qayta hisoblanadi
+    if data.get("geometry") and not data.get("drawing_method"):
+        data["drawing_method"] = "polygon"  # fermer chizgan yangi chegara
+    moved = loc is not None and (abs(loc["lat"] - f.centroid_lat) > 1e-4 or abs(loc["lon"] - f.centroid_lon) > 1e-4)
+    if not data.get("geometry") and ((loc or area) and f.drawing_method == "pin" or moved):
+        data["drawing_method"] = "pin"
         lat = loc["lat"] if loc else f.centroid_lat
         lon = loc["lon"] if loc else f.centroid_lon
         data["geometry"] = field_svc.square_geojson(lat, lon, area or f.area_ha)
@@ -215,6 +238,8 @@ async def patch_field(field_id: int, body: FieldPatch, farmer: Farmer = Depends(
         f.area_ha, f.centroid_lat, f.centroid_lon = (area or m["area_ha"]), m["centroid_lat"], m["centroid_lon"]
     else:
         data.pop("geometry", None)
+        if area:
+            f.area_ha = area  # konsepsiya: fermer kiritgan maydon
     crop_changed = "crop" in data and data["crop"] != f.crop
     for k, v in data.items():
         setattr(f, k, v)
@@ -237,9 +262,10 @@ async def delete_field(field_id: int, farmer: Farmer = Depends(current_farmer), 
 
 
 @router.get("/fields/{field_id}/dashboard")
-async def field_dashboard(field_id: int, farmer: Farmer = Depends(current_farmer), db: AsyncSession = Depends(get_db)):
+async def field_dashboard(field_id: int, lang: str | None = None, farmer: Farmer = Depends(current_farmer),
+                          db: AsyncSession = Depends(get_db)):
     f = await owned_field(field_id, farmer, db)
-    return await dash.dashboard(db, f, await _field_out(db, f))
+    return await dash.dashboard(db, f, await _field_out(db, f), lang or farmer.language or "en")
 
 
 @router.get("/fields/{field_id}/timeseries")

@@ -16,6 +16,7 @@ def check(name, cond, extra=""):
 
 
 c = httpx.Client(base_url=BASE, timeout=240)
+c.cookies.set("demo_sid", "shared")  # umumiy (seed qilingan) demo fermer
 auth = c.post("/auth/demo").json()
 h = {"Authorization": "Bearer " + auth["access_token"]}
 check("farmer has language+schedule", auth["farmer"].get("language") in ("uz", "ru", "en") and auth["farmer"].get("notify_schedule"),

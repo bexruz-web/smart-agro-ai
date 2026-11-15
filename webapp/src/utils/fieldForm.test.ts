@@ -16,6 +16,7 @@ const valid: FieldFormValues = {
   irrigation: 'furrow',
   water: 'canal',
   location: { lat: 40.02612345, lon: 67.90114999 },
+  polygon: null,
 }
 
 describe('add / edit field form', () => {
@@ -95,6 +96,6 @@ describe('add / edit field form', () => {
       },
       'uz',
     )
-    expect(v).toEqual({ ...valid, name: "Bug'doy dalasi", location: { lat: 40.0261, lon: 67.9011 } })
+    expect(v).toEqual({ ...valid, name: "Bug'doy dalasi", location: { lat: 40.0261, lon: 67.9011 }, polygon: null })
   })
 })

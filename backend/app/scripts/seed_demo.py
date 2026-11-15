@@ -17,6 +17,9 @@ from app.db.models import CropSeason, Device, Farmer, Field
 from app.db.session import get_sessionmaker
 from app.services import fields as field_svc
 
+# /auth/demo: `demo_sid=shared` cookie shu fermerga kiritadi (smoke testlar va tayyor demo uchun)
+SHARED_DEMO_USERNAME = "demo_shared"
+
 DEMO_FIELDS = [
     {
         "name": "Demo: Jizzakh — winter wheat",
@@ -41,9 +44,13 @@ DEMO_FIELDS = [
 
 async def seed(telegram_id: int | None, devices_file: Path) -> None:
     async with get_sessionmaker()() as s:
-        farmer = await s.scalar(select(Farmer).where(Farmer.is_demo.is_(True)))
+        farmer = await s.scalar(select(Farmer).where(Farmer.username == SHARED_DEMO_USERNAME))
+        if farmer is None:  # eski bazalar: seed qilingan demo fermer (username yo'q) — umumiy demo deb belgilaymiz
+            farmer = await s.scalar(select(Farmer).where(Farmer.is_demo.is_(True), Farmer.username.is_(None)).order_by(Farmer.id))
+            if farmer is not None:
+                farmer.username = SHARED_DEMO_USERNAME
         if farmer is None:
-            farmer = Farmer(telegram_id=telegram_id or -1001, first_name="Demo farmer", is_demo=True, language="en",
+            farmer = Farmer(telegram_id=telegram_id or -1001, first_name="Demo farmer", username=SHARED_DEMO_USERNAME, is_demo=True, language="en",
                             report_interval_hours=4, quiet_hours_start=None, quiet_hours_end=None)
             s.add(farmer)
             await s.flush()

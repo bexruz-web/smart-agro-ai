@@ -44,14 +44,105 @@ export const createLeafletMap: MapFactory = async (container, options) => {
 
   const polygonLayer = L.layerGroup().addTo(map)
   const markerLayer = L.layerGroup().addTo(map)
+  const drawShapeLayer = L.layerGroup().addTo(map)
+  const drawVertexLayer = L.layerGroup().addTo(map)
   let clickHandler: ((p: LatLon) => void) | null = null
+  let drawHandler: ((pts: LatLon[]) => void) | null = null
+  let drawPoints: LatLon[] = []
+  /** Time of the last vertex drag: the click the browser may fire after it must not add a vertex. */
+  let lastDragEnd = 0
+
+  // ---- drawing helpers ----
+  const DRAW_COLOR = '#22c55e'
+
+  /** Reports a copy, so the caller can keep it (React state) while the layer goes on editing. */
+  function emitDraw() {
+    drawHandler?.(drawPoints.map((p) => ({ ...p })))
+  }
+
+  /** Outline (2 points) or filled polygon (3+). Redrawn on every change, also while dragging. */
+  function renderDrawShape() {
+    drawShapeLayer.clearLayers()
+    const pts = drawPoints.map(toLL)
+    if (pts.length >= 3) {
+      L.polygon(pts, { color: DRAW_COLOR, weight: 2.5, fillColor: DRAW_COLOR, fillOpacity: 0.18, interactive: false }).addTo(drawShapeLayer)
+    } else if (pts.length === 2) {
+      L.polyline(pts, { color: DRAW_COLOR, weight: 2.5, dashArray: '6 4', interactive: false }).addTo(drawShapeLayer)
+    }
+  }
+
+  /** Shape + vertex handles. Only on add/remove: re-creating a handle mid-drag would end a touch drag. */
+  function renderDraw() {
+    drawVertexLayer.clearLayers()
+    renderDrawShape()
+    if (!drawHandler) return
+    drawPoints.forEach((pt, i) => {
+      const m = L.circleMarker(toLL(pt), {
+        radius: 9, color: '#fff', weight: 2.5, fillColor: DRAW_COLOR, fillOpacity: 1, interactive: true,
+      }).addTo(drawVertexLayer)
+      // A tap on a handle must not reach the map (it would add a vertex on top of it).
+      m.on('click', (e) => L.DomEvent.stopPropagation(e))
+      // Double tap removes the vertex.
+      m.on('dblclick', (e) => {
+        L.DomEvent.stopPropagation(e)
+        drawPoints = drawPoints.filter((_, j) => j !== i)
+        renderDraw()
+        emitDraw()
+      })
+      // Drag moves the vertex: the handle is moved in place and only the shape is redrawn.
+      const el = m.getElement()
+      if (!el) return
+      let moved = false
+      const onMove = (ev: TouchEvent | MouseEvent) => {
+        const src = 'touches' in ev ? ev.touches[0] : ev
+        if (!src) return
+        const box = map.getContainer().getBoundingClientRect()
+        const ll = map.containerPointToLatLng([src.clientX - box.left, src.clientY - box.top])
+        moved = true
+        m.setLatLng(ll)
+        drawPoints = drawPoints.map((p, j) => (j === i ? { lat: ll.lat, lon: ll.lng } : p))
+        renderDrawShape()
+        emitDraw()
+      }
+      const onEnd = () => {
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onEnd)
+        document.removeEventListener('touchmove', onMove)
+        document.removeEventListener('touchend', onEnd)
+        document.removeEventListener('touchcancel', onEnd)
+        if (moved) lastDragEnd = Date.now()
+        moved = false
+      }
+      el.addEventListener('mousedown', (ev) => {
+        ev.stopPropagation()
+        ev.preventDefault()
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onEnd)
+      })
+      el.addEventListener('touchstart', (ev) => {
+        ev.stopPropagation()
+        document.addEventListener('touchmove', onMove, { passive: true })
+        document.addEventListener('touchend', onEnd)
+        document.addEventListener('touchcancel', onEnd)
+      })
+    })
+  }
 
   map.on('click', (e: L.LeafletMouseEvent) => {
-    if (interactive && clickHandler) clickHandler({ lat: e.latlng.lat, lon: e.latlng.lng })
+    if (!interactive) return
+    if (drawHandler) {
+      if (Date.now() - lastDragEnd < 400) return
+      drawPoints = [...drawPoints, { lat: e.latlng.lat, lon: e.latlng.lng }]
+      renderDraw()
+      emitDraw()
+      return
+    }
+    if (clickHandler) clickHandler({ lat: e.latlng.lat, lon: e.latlng.lng })
   })
 
   const controller: MapController = {
     provider: 'leaflet',
+    canDraw: true,
     setView(center, zoom) {
       map.setView(toLL(center), zoom ?? map.getZoom())
     },
@@ -108,6 +199,16 @@ export const createLeafletMap: MapFactory = async (container, options) => {
     },
     onClick(handler) {
       clickHandler = handler
+    },
+    drawPolygon(opts) {
+      drawHandler = opts ? opts.onChange : null
+      drawPoints = opts ? opts.points.map((p) => ({ ...p })) : []
+      // While drawing, a double tap edits vertices instead of zooming the map.
+      if (interactive) {
+        if (opts) map.doubleClickZoom.disable()
+        else map.doubleClickZoom.enable()
+      }
+      renderDraw()
     },
     resize() {
       map.invalidateSize()

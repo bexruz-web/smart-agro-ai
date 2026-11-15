@@ -42,3 +42,39 @@ export function fieldPoint(f: { location?: LatLon | null; centroid?: LatLon | nu
 export function formatLatLon(p: LatLon, digits = 5): string {
   return `${p.lat.toFixed(digits)}, ${p.lon.toFixed(digits)}`
 }
+
+/** A drawn field boundary needs at least this many vertices. */
+export const POLYGON_MIN_POINTS = 3
+
+/** Drawn vertices that form a usable polygon: enough valid points (a repeated closing vertex is dropped). */
+export function usablePolygon(pts: LatLon[] | null | undefined): LatLon[] | null {
+  if (!pts || !pts.every(isValidLatLon)) return null
+  const open = pts.length > 1 && samePoint(pts[0], pts[pts.length - 1]) ? pts.slice(0, -1) : pts
+  return open.length >= POLYGON_MIN_POINTS ? open : null
+}
+
+/** Mean of the vertices — where a drawn field is placed when no pin was dropped. */
+export function polygonCentroid(pts: LatLon[]): LatLon {
+  return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length }
+}
+
+/** Approximate area of a polygon on the Earth's sphere, in hectares (0 for fewer than 3 points). */
+export function polygonAreaHa(pts: LatLon[]): number {
+  if (pts.length < POLYGON_MIN_POINTS) return 0
+  const R = 6371000
+  const rad = Math.PI / 180
+  let sum = 0
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % pts.length]
+    sum += (b.lon - a.lon) * rad * (Math.sin(a.lat * rad) + Math.sin(b.lat * rad))
+  }
+  return Math.abs((sum * R * R) / 2) / 10000
+}
+
+/** Vertices → GeoJSON polygon: closed exterior ring of [lon, lat] pairs (6 decimals ≈ 0.1 m). */
+export function toGeoJsonPolygon(pts: LatLon[]): GeoJsonPolygon {
+  const r6 = (x: number) => Math.round(x * 1e6) / 1e6
+  const ring = [...pts, pts[0]].map((p) => [r6(p.lon), r6(p.lat)])
+  return { type: 'Polygon', coordinates: [ring] }
+}

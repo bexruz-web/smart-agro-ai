@@ -37,6 +37,8 @@ export interface MapOptions {
 
 export interface MapController {
   readonly provider: 'leaflet' | 'google'
+  /** Whether drawPolygon() is supported by this provider. */
+  readonly canDraw: boolean
   setView(center: LatLon, zoom?: number): void
   /** Fit the viewport to the given points (no-op for an empty list). */
   fitTo(points: LatLon[], maxZoom?: number): void
@@ -44,6 +46,13 @@ export interface MapController {
   setMarkers(markers: MapMarker[]): void
   /** Map tap/click handler (null to remove). */
   onClick(handler: ((p: LatLon) => void) | null): void
+  /**
+   * Interactive polygon drawing mode, started with `points` (may be empty).
+   * Each tap adds a vertex, a vertex can be dragged, a double tap removes it. The draw layer
+   * owns its points from then on and reports every change to `onChange` (a new array each time),
+   * so callers must not re-call drawPolygon() on each change. Pass `null` to stop drawing and clear the layer.
+   */
+  drawPolygon(opts: { points: LatLon[]; onChange: (pts: LatLon[]) => void } | null): void
   /** Call after the container size changed. */
   resize(): void
   destroy(): void

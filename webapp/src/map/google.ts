@@ -67,6 +67,7 @@ export const createGoogleMap: MapFactory = async (container, options) => {
 
   const controller: MapController = {
     provider: 'google',
+    canDraw: false,
     setView(center, zoom) {
       map.setCenter(toLL(center))
       if (zoom !== undefined) map.setZoom(zoom)
@@ -121,6 +122,9 @@ export const createGoogleMap: MapFactory = async (container, options) => {
     },
     onClick(handler) {
       clickHandler = handler
+    },
+    drawPolygon() {
+      /* Not supported by this provider (canDraw: false): the picker offers only the pin. */
     },
     resize() {
       /* Google Maps observes its container size automatically. */

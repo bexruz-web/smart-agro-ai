@@ -73,6 +73,22 @@ export function isValidDateOnly(s: string | null | undefined): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d
 }
 
+/**
+ * A calendar date "YYYY-MM-DD" as a short label in the UI language: "Today" / "Tomorrow"
+ * (Tashkent calendar), otherwise weekday + day.month: "Wed 18.11" · "Chor 18.11" · "Ср 18.11".
+ */
+export function formatDay(date: string | null | undefined, lang: Lang = getLang(), now: Date = new Date()): string {
+  if (!date || !isValidDateOnly(date)) return '—'
+  const [y, m, d] = date.split('-').map(Number)
+  const day = new Date(Date.UTC(y, m - 1, d))
+  const today = todayTashkent(now)
+  if (date === today) return translate(lang, 'time.today')
+  const [ty, tm, td] = today.split('-').map(Number)
+  if (day.getTime() - Date.UTC(ty, tm - 1, td) === 86400000) return translate(lang, 'time.tomorrow')
+  const weekday = translate(lang, 'time.weekdays').split('|')[day.getUTCDay()] ?? ''
+  return `${weekday} ${pad(d)}.${pad(m)}`.trim()
+}
+
 /** Minutes elapsed since an instant (negative for the future); null for invalid input. */
 export function minutesSince(v: string | null | undefined, now: Date = new Date()): number | null {
   if (!v) return null

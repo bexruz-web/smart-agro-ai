@@ -5,6 +5,7 @@ import type {
   AgronomInfo,
   AuthResponse,
   ChatReply,
+  Dashboard,
   Farmer,
   FarmerPatch,
   Field,
@@ -44,6 +45,9 @@ export const getField = (id: number) => api<Field>('GET', `/fields/${id}`)
 export const createField = (input: FieldInput) => api<Field>('POST', '/fields', { body: input })
 export const updateField = (id: number, input: Partial<FieldInput>) => api<Field>('PATCH', `/fields/${id}`, { body: input })
 export const deleteField = (id: number) => api<null>('DELETE', `/fields/${id}`)
+
+// Dashboard (full data: metrics, recommendations, forecast, devices), texts in the UI language
+export const getFieldDashboard = (id: number, lang: Lang) => api<Dashboard>('GET', `/fields/${id}/dashboard`, { query: { lang } })
 
 // AI Agronom (per field)
 export const getAgronom = (id: number, lang: Lang) => api<AgronomInfo>('GET', `/fields/${id}/agronom`, { query: { lang } })

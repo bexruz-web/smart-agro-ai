@@ -130,14 +130,27 @@ def main() -> None:
         from aiohttp import web
         from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-        async def set_hook(bot_: Bot):
-            await bot_.set_webhook(WEBAPP_URL.rstrip("/") + "/tg/webhook", secret_token=WEBHOOK_SECRET or None)
+        async def run_webhook():
+            webhook_url = WEBAPP_URL.rstrip("/") + "/tg/webhook"
+            await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET or None)
+            log.info("Webhook o'rnatildi: %s", webhook_url)
+            wapp = web.Application()
+            SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET or None).register(
+                wapp, path="/tg/webhook"
+            )
+            setup_application(wapp, dp, bot=bot)
+            runner = web.AppRunner(wapp)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", 8081)
+            await site.start()
+            log.info("Webhook serveri 0.0.0.0:8081 portida ishlamoqda")
+            # Davomiy ishlash uchun siqilmasdan kutish
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await runner.cleanup()
 
-        dp.startup.register(set_hook)
-        app = web.Application()
-        SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET or None).register(app, path="/tg/webhook")
-        setup_application(app, dp, bot=bot)
-        web.run_app(app, host="0.0.0.0", port=8081)
+        asyncio.run(run_webhook())
     else:
         async def run():
             await bot.delete_webhook(drop_pending_updates=False)

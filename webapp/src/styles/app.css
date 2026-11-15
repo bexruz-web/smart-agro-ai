@@ -1244,3 +1244,251 @@ textarea.input {
 .answer__more > :not(summary) + :not(summary) {
   margin-top: var(--space-2);
 }
+
+/* ---------- PolygonPicker ---------- */
+.polygon-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.polygon-picker__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+}
+.polygon-picker__tab {
+  flex: 1 1 0;
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.polygon-picker__tab.is-active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-weight: var(--font-weight-bold);
+}
+.polygon-picker__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  min-height: 40px;
+}
+.polygon-picker__ok {
+  color: var(--color-success);
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.polygon-picker__hint {
+  color: var(--color-text-muted);
+}
+.polygon-picker__area {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-bold);
+}
+.polygon-picker__clear {
+  border: 0;
+  background: transparent;
+  color: var(--color-destructive);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+.polygon-picker__clear:active {
+  background: var(--color-danger-soft);
+}
+
+/* ---------- Sensor & Dashboard Cards ---------- */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.sensor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.sensor-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.sensor-card__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sensor-card__val {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.15;
+}
+.sensor-card__unit {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-muted);
+}
+.sensor-card__src {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 7-day forecast strip */
+.forecast-strip {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.forecast-day {
+  flex: 0 0 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  text-align: center;
+}
+.forecast-day__date {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+}
+.forecast-day__temp {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+.forecast-day__precip {
+  font-size: var(--font-size-xs);
+  color: var(--color-info);
+  font-weight: var(--font-weight-medium);
+}
+
+/* AI Recommendation item */
+.rec-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-accent);
+}
+.rec-item--high {
+  border-left-color: var(--risk-high);
+}
+.rec-item--medium {
+  border-left-color: var(--risk-medium);
+}
+.rec-item__title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.rec-item__body {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  line-height: 1.4;
+}
+.rec-item__action {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Schedule item */
+.schedule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.schedule-item__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.schedule-item__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+.schedule-item__date {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.schedule-item__amount {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+}
+
+/* Device item */
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.device-row__name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+.device-row__id {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
